@@ -18,13 +18,30 @@ jobs:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" \
+          echo "Logging in..."
+          LOGIN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" \
             -H "Content-Type: application/json" \
-            -d "{\"username\": \"${DOCKERHUB_USERNAME}\", \"password\": \"${DOCKERHUB_PASSWORD}\"}" \
-            | jq -r '.token')
+            -d "{\"username\": \"${DOCKERHUB_USERNAME}\", \"password\": \"${DOCKERHUB_PASSWORD}\"}")
+          echo "Login response: $LOGIN"
 
-          curl -s -X PATCH \
+          TOKEN=$(echo "$LOGIN" | jq -r '.token')
+          if [ "$TOKEN" = "null" ] || [ -z "$TOKEN" ]; then
+            echo "ERROR: Failed to get token"
+            exit 1
+          fi
+          echo "Token obtained successfully"
+
+          echo "Updating description..."
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PATCH \
             "https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/aisongtool/" \
             -H "Authorization: JWT ${TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "{\"full_description\": $(jq -Rs . < README.md)}"
+            -d "{\"full_description\": $(jq -Rs . < README.md)}")
+          echo "Response: $RESPONSE"
+
+          HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS" | cut -d: -f2)
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "ERROR: Unexpected status $HTTP_STATUS"
+            exit 1
+          fi
+          echo "Done!"
