@@ -14,9 +14,17 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Push README to Docker Hub
-        uses: peter-evans/dockerhub-description@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: tawhidunhappy/aisongtool
-          readme-filepath: ./README.md
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" \
+            -H "Content-Type: application/json" \
+            -d "{\"username\": \"${DOCKERHUB_USERNAME}\", \"password\": \"${DOCKERHUB_PASSWORD}\"}" \
+            | jq -r '.token')
+
+          curl -s -X PATCH \
+            "https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/aisongtool/" \
+            -H "Authorization: JWT ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"full_description\": $(jq -Rs . < README.md)}"
