@@ -1,0 +1,28 @@
+# Version control
+.git/
+
+# Python bytecode & caches
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Runtime job data
+jobs/
+
+# uv lockfile — not used in Docker
+uv.lock
+
+# IDE / editor
+.vscode/
+.idea/
+
+# Claude memory
+.claude/

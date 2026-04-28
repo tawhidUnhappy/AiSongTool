@@ -1,0 +1,30 @@
+# CPU version — works on any machine, no GPU required
+# Run with: docker compose up
+#
+# For GPU version use: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+
+services:
+  aisongtool:
+    image: yuzukilies/aisongtool:latest
+    container_name: aisongtool
+    ports:
+      - "8000:8000"
+    environment:
+      XDG_CACHE_HOME: /root/.cache
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_CACHE: /root/.cache/huggingface/hub
+      TRANSFORMERS_CACHE: /root/.cache/huggingface
+      TORCH_HOME: /root/.cache/torch
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      # Uncomment and set your HuggingFace token if models require login:
+      # HF_TOKEN: your_token_here
+    volumes:
+      - torch-cache:/root/.cache/torch
+      - hf-cache:/root/.cache/huggingface
+      - jobs-data:/app/jobs
+    restart: unless-stopped
+
+volumes:
+  torch-cache:
+  hf-cache:
+  jobs-data:

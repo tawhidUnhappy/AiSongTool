@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aisongtool"
+version = "0.6.0"
+description = "Generate precise, line-by-line song subtitles using Demucs + WhisperX + lyrics alignment."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "python-multipart>=0.0.9",
+  "pydantic>=2.0",
+]
+
+[project.scripts]
+aisongtool = "aisongtool.cli:main"
+aisongtool-server = "aisongtool.server:app"
+
+[tool.setuptools.packages.find]
+include = ["aisongtool*"]
+
+[tool.setuptools.package-data]
+aisongtool = ["py.typed"]
