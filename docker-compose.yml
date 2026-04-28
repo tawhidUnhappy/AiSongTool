@@ -5,7 +5,7 @@
 
 services:
   aisongtool:
-    image: yuzukilies/aisongtool:latest
+    image: tawhidunhappy/aisongtool:latest
     container_name: aisongtool
     ports:
       - "8000:8000"

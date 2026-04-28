@@ -14,7 +14,7 @@ AI-powered song subtitle generator. Upload any audio file and get perfectly time
 docker run -p 8000:8000 \
   -v aisongtool-hf:/root/.cache/huggingface \
   -v aisongtool-torch:/root/.cache/torch \
-  yuzukilies/aisongtool:latest
+  tawhidunhappy/aisongtool:latest
 ```
 
 Then open [http://localhost:8000](http://localhost:8000)
@@ -27,7 +27,7 @@ Then open [http://localhost:8000](http://localhost:8000)
 docker run --gpus all -p 8000:8000 \
   -v aisongtool-hf:/root/.cache/huggingface \
   -v aisongtool-torch:/root/.cache/torch \
-  yuzukilies/aisongtool:gpu
+  tawhidunhappy/aisongtool:gpu
 ```
 
 ---

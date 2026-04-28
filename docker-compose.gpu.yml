@@ -5,7 +5,7 @@
 
 services:
   aisongtool:
-    image: yuzukilies/aisongtool:gpu
+    image: tawhidunhappy/aisongtool:gpu
     deploy:
       resources:
         reservations:
