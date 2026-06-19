@@ -25,6 +25,25 @@ def find_uv() -> str:
     raise RuntimeError("uv not found. Ensure `uv --version` works.")
 
 
+def find_ffmpeg() -> str:
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        return ffmpeg
+    raise RuntimeError("ffmpeg not found. Install it and ensure `ffmpeg -version` works.")
+
+
+def venv_python(env_dir: Path) -> Path:
+    """Path to the interpreter inside a uv-managed env dir (e.g. demucs-uv/.venv).
+
+    Invoking this directly — rather than ``uv run`` — avoids uv's implicit
+    sync-to-lockfile step, which would revert the CUDA torch build that
+    `aisongtool setup` force-reinstalls after `uv sync` (see tools_install.py).
+    """
+    windows_python = env_dir / ".venv" / "Scripts" / "python.exe"
+    posix_python = env_dir / ".venv" / "bin" / "python"
+    return windows_python if sys.platform == "win32" else posix_python
+
+
 def run_cmd(cmd: list[str], cwd: Path, log_path: Path) -> None:
     """Run a command and stream output live to console, pipeline.log, and the
     WebUI live-log terminal.

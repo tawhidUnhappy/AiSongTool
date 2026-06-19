@@ -6,26 +6,28 @@ from pathlib import Path
 
 from .config import ToolFolders, WhisperXConfig
 from .logging_utils import log
-from .toolrunner import find_uv, run_cmd
+from .paths import workers_dir as _workers_dir
+from .toolrunner import run_cmd, venv_python
 
 def transcribe_with_whisperx(audio_path: Path, out_json_path: Path, tools: ToolFolders, cfg: WhisperXConfig, log_path: Path) -> dict:
     out_json_path.parent.mkdir(parents=True, exist_ok=True)
     log("Step 2: WhisperX transcribe + align", log_path)
 
+    workers_dir = _workers_dir()
     whisperx_python = os.environ.get("WHISPERX_PYTHON")
-    if whisperx_python:
-        # Docker mode: call worker directly with the isolated venv Python
-        workers_dir = Path(__file__).resolve().parent.parent / "workers"
-        cmd = [whisperx_python, str(workers_dir / "transcribe.py")]
-        cwd = out_json_path.parent
-    else:
-        # Native mode: use uv to run worker from the whisperx env directory
-        uv = find_uv()
+    if not whisperx_python:
+        # Native mode: use the isolated whisperx-uv venv's own Python directly
+        # (provisioned by `aisongtool setup`) instead of `uv run`, which would
+        # re-sync the env to its CPU-default lockfile and undo the CUDA build.
         wdir = tools.whisperx_env_dir
         if not wdir.exists():
-            raise RuntimeError(f"Missing folder: {wdir}")
-        cmd = [uv, "run", "../workers/transcribe.py"]
-        cwd = wdir
+            raise RuntimeError(f"Missing folder: {wdir}. Run `aisongtool setup` first.")
+        whisperx_python = str(venv_python(wdir))
+        if not Path(whisperx_python).exists():
+            raise RuntimeError(f"Missing venv: {whisperx_python}. Run `aisongtool setup` first.")
+
+    cmd = [whisperx_python, str(workers_dir / "transcribe.py")]
+    cwd = out_json_path.parent
 
     cmd += [
         "--audio", str(audio_path),

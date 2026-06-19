@@ -6,6 +6,7 @@ from .align import align_words, extract_whisper_words
 from .config import PipelineConfig
 from .cues import Cue, build_line_cues, build_segment_cues, cues_to_ass, cues_to_lrc, cues_to_sbv, cues_to_srt, cues_to_vtt
 from .demucs import separate_vocals
+from .karaoke import build_word_cues, cues_to_karaoke_ass
 from .logging_utils import log
 from .lyrics import build_lyric_lines, build_lyric_segments
 from .whisperx_asr import transcribe_with_whisperx
@@ -55,6 +56,7 @@ def run_pipeline(song_path: Path, lyrics_path: Path, out_dir: Path, cfg: Pipelin
     whisper_json = transcribe_with_whisperx(vocals_wav, whisper_json_path, cfg.tools, cfg.whisperx, log_path)
 
     raw_lyrics = lyrics_path.read_text(encoding="utf-8", errors="ignore").strip() if lyrics_path and lyrics_path.exists() else ""
+    karaoke_ass_path: Path | None = None
 
     if not raw_lyrics:
         log("Step 3: No lyrics — building cues directly from transcription", log_path)
@@ -106,6 +108,10 @@ def run_pipeline(song_path: Path, lyrics_path: Path, out_dir: Path, cfg: Pipelin
             log(f"  segment cues:         {len(cues)}", log_path)
         else:
             cues = line_cues
+            log("Step 6: Build karaoke word timing (for the lyric-video feature)", log_path)
+            word_cues = build_word_cues(lyrics_words, line_ranges, line_cues, whisper_words, pairs)
+            karaoke_ass_path = out_dir / "karaoke.ass"
+            karaoke_ass_path.write_text(cues_to_karaoke_ass(line_cues, word_cues), encoding="utf-8")
 
     max_chars = cfg.lyrics.max_chars_per_line
     max_lines = cfg.lyrics.max_lines_per_cue
@@ -141,4 +147,5 @@ def run_pipeline(song_path: Path, lyrics_path: Path, out_dir: Path, cfg: Pipelin
         "lyrics": out_dir / "lyrics_clean.txt",
         "log": log_path,
         "whisper_json": whisper_json_path,
+        "karaoke_ass": karaoke_ass_path,
     }

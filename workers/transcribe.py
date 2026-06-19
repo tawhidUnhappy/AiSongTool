@@ -19,7 +19,8 @@ def configure_runtime_caches() -> None:
     This MUST run before importing torch / torchaudio / whisperx so those
     libraries pick up the cache locations on first import.
     """
-    xdg_cache_home = os.environ.get("XDG_CACHE_HOME", "/root/.cache")
+    default_cache = str(Path.home() / ".cache")
+    xdg_cache_home = os.environ.get("XDG_CACHE_HOME", default_cache)
     hf_home = os.environ.get("HF_HOME", f"{xdg_cache_home}/huggingface")
     torch_home = os.environ.get("TORCH_HOME", f"{xdg_cache_home}/torch")
 

@@ -8,6 +8,34 @@ AI-powered song subtitle generator. Upload any audio file and get perfectly time
 
 ## Quick Start
 
+### Native, with uv (no Docker)
+
+```bash
+cd AiSongTool
+uv tool install --editable .   # installs the `aisongtool` command, uv's own Python
+aisongtool setup                # provisions demucs-uv/ + whisperx-uv/ (auto-detects your GPU)
+aisongtool app                  # opens the AiSongTool desktop app
+```
+
+`aisongtool app` opens a native desktop window with four tabs:
+
+- **Generate Subtitles** — upload a song (+ optional lyrics), run the pipeline, download SRT/ASS/VTT/LRC/SBV.
+- **Make Video** — pick a completed job, supply a background image, render an MP4 with
+  word-by-word karaoke-highlighted lyrics burned in.
+- **Terminal** — live output from whatever's currently running (pipeline, ffmpeg, setup).
+- **Setup** — GPU/uv/ffmpeg status and a button to (re)provision the isolated environments.
+
+`aisongtool setup` auto-detects an NVIDIA GPU via `nvidia-smi` and installs the matching
+CUDA or CPU torch build into two isolated `uv` environments (`demucs-uv/`, `whisperx-uv/`),
+mirroring the Docker images' two-venv split so Demucs and WhisperX never fight over a
+shared torch version. Re-run it with `--cpu` or `--cuda` to force a build, or `--force`
+to rewrite the env definitions. `ffmpeg` (for the video feature) is a separate prerequisite
+checked on the Setup tab — install it system-wide and ensure it's on `PATH`.
+
+`aisongtool app` runs the provisioning step automatically on first launch if you skip it.
+
+---
+
 ### CPU (works on any machine)
 
 ```bash
@@ -88,13 +116,19 @@ On Windows, Docker Desktop handles GPU passthrough automatically once drivers ar
 | `.lrc` | Music players                                |
 | `.sbv` | YouTube captions                             |
 
+### Lyric Video
+
+The **Make Video** tab takes a completed job's audio + word-level timing (only
+available when lyrics were supplied without segment mode) and a background image
+you upload, and burns in word-by-word karaoke-highlighted lyrics over the image with
+`ffmpeg`. Requires `ffmpeg` on `PATH` — checked on the Setup tab.
+
 ---
 
 ## Notes
 
 - AI models (~3–6 GB) are downloaded on **first run** and cached in the mounted volumes. Subsequent runs are instant.
-- Jobs are deleted automatically after download + ~1 hour TTL.
-- Rate limit: 20 jobs/hour per IP.
+- Only one job runs at a time (pipeline or video render) — the UI tells you if one's already in progress.
 - For private/gated HuggingFace models, set `HF_TOKEN` in your environment.
 
 ---

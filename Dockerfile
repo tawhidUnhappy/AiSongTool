@@ -31,7 +31,8 @@ RUN pip install --no-cache-dir \
         "fastapi>=0.110" \
         "uvicorn[standard]>=0.27" \
         "python-multipart>=0.0.9" \
-        "pydantic>=2.0"
+        "pydantic>=2.0" \
+        "nicegui>=3.1.0"
 
 # Demucs venv — pin torch before demucs so pip cannot upgrade it
 RUN python -m venv /opt/venvs/demucs
@@ -60,8 +61,7 @@ RUN mkdir -p \
 
 COPY aisongtool/ ./aisongtool/
 COPY workers/ ./workers/
-COPY webui/ ./webui/
 RUN pip install --no-cache-dir --no-deps .
 
 EXPOSE 8000
-CMD ["uvicorn", "aisongtool.server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "aisongtool.cli", "app", "--host", "0.0.0.0", "--port", "8000"]

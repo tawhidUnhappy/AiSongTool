@@ -16,6 +16,10 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+build-tmp/
+
+# Per-user data dir created by frozen installs (see aisongtool/paths.py)
+.aisongtool/
 
 # Tool caches
 .pytest_cache/

@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""AiSongTool CLI — run the full pipeline from the command line."""
+"""AiSongTool CLI — `aisongtool app` (web UI), `aisongtool run` (one-shot pipeline),
+`aisongtool setup` (provision the demucs-uv / whisperx-uv envs)."""
 from __future__ import annotations
 
 import argparse
 import sys
+from importlib.metadata import version
 from pathlib import Path
 
 from .config import DemucsConfig, LyricsConfig, PipelineConfig, ToolFolders, WhisperXConfig
 from .pipeline_core import run_pipeline
+from .tools_install import ROOT, envs_provisioned, gpu_status, main as setup_main, setup_envs
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(
-        description="AiSongTool: Demucs + WhisperX + line-by-line lyrics subtitles",
-    )
+def _add_run_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--song", required=True, help="Path to song file (mp3/wav/m4a)")
     ap.add_argument("--lyrics", default="", help="Path to lyrics text file (omit to transcribe only)")
     ap.add_argument("--out", required=True, help="Output directory")
 
-    ap.add_argument("--demucs_env", default="demucs-uv", help="Demucs uv environment directory")
-    ap.add_argument("--whisperx_env", default="whisperx-uv", help="WhisperX uv environment directory")
+    ap.add_argument("--demucs_env", default=str(ROOT / "demucs-uv"), help="Demucs uv environment directory")
+    ap.add_argument("--whisperx_env", default=str(ROOT / "whisperx-uv"), help="WhisperX uv environment directory")
 
     ap.add_argument("--demucs_model", default="htdemucs", help="Demucs model name")
     ap.add_argument("--whisper_model", default="large-v3", help="WhisperX model name")
@@ -38,8 +38,8 @@ def main() -> int:
     ap.add_argument("--vad", default="silero", choices=["silero", "pyannote"],
                     help="VAD backend for WhisperX (default: silero)")
 
-    args = ap.parse_args()
 
+def _run(args: argparse.Namespace) -> int:
     cfg = PipelineConfig(
         skip_demucs=args.skip_demucs,
         tools=ToolFolders(
@@ -72,6 +72,61 @@ def main() -> int:
         cfg=cfg,
     )
     return 0
+
+
+def _app(args: argparse.Namespace) -> int:
+    import os
+
+    status = gpu_status()
+    if status["nvidia_smi"]:
+        print("[aisongtool] GPU: NVIDIA GPU detected (nvidia-smi).")
+    else:
+        print("[aisongtool] GPU: none detected — will run on CPU (slower).")
+
+    if not os.environ.get("DEMUCS_PYTHON") and not envs_provisioned():
+        print("[aisongtool] First run: provisioning demucs-uv / whisperx-uv environments with uv...")
+        setup_envs()
+
+    from .web.app import main as run_app
+
+    run_app(host=args.host, port=args.port)
+    return 0
+
+
+def main() -> int:
+    # Console encoding on Windows defaults to the legacy code page (e.g.
+    # cp1252), which can't print arrows/em-dashes used in log messages.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+    # `setup` delegates entirely to tools_install's own argparse parser, so
+    # handle it before the main parser ever sees its flags (e.g. --cuda/--cpu).
+    if len(sys.argv) > 1 and sys.argv[1] == "setup":
+        return setup_main(sys.argv[2:])
+
+    ap = argparse.ArgumentParser(
+        prog="aisongtool",
+        description="AiSongTool: Demucs + WhisperX + line-by-line lyrics subtitles",
+    )
+    ap.add_argument("--version", action="version", version=f"aisongtool {version('aisongtool')}")
+    sub = ap.add_subparsers(dest="command", required=True)
+
+    app_ap = sub.add_parser("app", help="Start the AiSongTool app (native window, or headless HTTP in Docker)")
+    app_ap.add_argument("--host", default="0.0.0.0", help="Bind host (Docker/headless mode only)")
+    app_ap.add_argument("--port", type=int, default=8000, help="Bind port (Docker/headless mode only)")
+    app_ap.set_defaults(func=_app)
+
+    run_ap = sub.add_parser("run", help="Run the pipeline once from the command line")
+    _add_run_args(run_ap)
+    run_ap.set_defaults(func=_run)
+
+    sub.add_parser("setup", help="Provision the isolated demucs-uv / whisperx-uv environments")
+
+    args = ap.parse_args()
+    return args.func(args)
 
 
 if __name__ == "__main__":

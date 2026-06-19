@@ -6,7 +6,8 @@ from pathlib import Path
 
 from .config import DemucsConfig, ToolFolders
 from .logging_utils import log
-from .toolrunner import find_uv, run_cmd
+from .paths import workers_dir as _workers_dir
+from .toolrunner import run_cmd, venv_python
 
 def find_vocals(out_dir: Path) -> Path:
     direct = out_dir / "vocals.wav"
@@ -22,22 +23,22 @@ def separate_vocals(song_path: Path, out_dir: Path, tools: ToolFolders, demucs: 
     out_dir.mkdir(parents=True, exist_ok=True)
     log("Step 1: Demucs separate", log_path)
 
+    workers_dir = _workers_dir()
     demucs_python = os.environ.get("DEMUCS_PYTHON")
-    if demucs_python:
-        # Docker mode: call worker directly with the isolated venv Python
-        workers_dir = Path(__file__).resolve().parent.parent / "workers"
-        cmd = [demucs_python, str(workers_dir / "demucs_separate.py"),
-               str(song_path), str(out_dir), "--model", demucs.model]
-        run_cmd(cmd, cwd=out_dir, log_path=log_path)
-    else:
-        # Native mode: use uv to run worker from the demucs env directory
-        uv = find_uv()
+    if not demucs_python:
+        # Native mode: use the isolated demucs-uv venv's own Python directly
+        # (provisioned by `aisongtool setup`) instead of `uv run`, which would
+        # re-sync the env to its CPU-default lockfile and undo the CUDA build.
         demucs_dir = tools.demucs_env_dir
         if not demucs_dir.exists():
-            raise RuntimeError(f"Missing folder: {demucs_dir}")
-        run_cmd([uv, "run", "../workers/demucs_separate.py",
-                 str(song_path), str(out_dir), "--model", demucs.model],
-                cwd=demucs_dir, log_path=log_path)
+            raise RuntimeError(f"Missing folder: {demucs_dir}. Run `aisongtool setup` first.")
+        demucs_python = str(venv_python(demucs_dir))
+        if not Path(demucs_python).exists():
+            raise RuntimeError(f"Missing venv: {demucs_python}. Run `aisongtool setup` first.")
+
+    cmd = [demucs_python, str(workers_dir / "demucs_separate.py"),
+           str(song_path), str(out_dir), "--model", demucs.model]
+    run_cmd(cmd, cwd=out_dir, log_path=log_path)
 
     vocals_src = find_vocals(out_dir)
     vocals_dst = out_dir / "vocals.wav"
