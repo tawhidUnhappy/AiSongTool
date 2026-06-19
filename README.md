@@ -34,6 +34,26 @@ checked on the Setup tab — install it system-wide and ensure it's on `PATH`.
 
 `aisongtool app` runs the provisioning step automatically on first launch if you skip it.
 
+#### Optional: ACE-Step-1.5 (music generation)
+
+[ACE-Step-1.5](https://github.com/ACE-Step/ACE-Step-1.5) is a separate, optional music
+generation model. It has a large, fast-moving dependency set of its own (vLLM, diffusers,
+its own pinned CUDA torch build) that would conflict with AiSongTool's main env and with
+demucs-uv/whisperx-uv, so it's installed the same isolated-`uv`-env way, but as a full git
+clone of its own project (it ships its own `pyproject.toml`/`uv.lock`, unlike demucs-uv/
+whisperx-uv, which AiSongTool authors itself):
+
+```bash
+aisongtool install-tool ace-step   # clones https://github.com/ACE-Step/ACE-Step-1.5 + `uv sync`
+aisongtool ace-step app            # Gradio UI (uv run acestep)
+aisongtool ace-step api            # REST API server (uv run acestep-api)
+aisongtool ace-step download       # pre-fetch model checkpoints (uv run acestep-download)
+```
+
+Both are also available from the **Setup** tab in the desktop app. `aisongtool install-tool
+ace-step --update` pulls the latest changes and re-syncs. Requires `git` and `uv` on `PATH`;
+downloads several GB on first install.
+
 ---
 
 ### CPU (works on any machine)

@@ -175,6 +175,7 @@ def envs_provisioned() -> bool:
 
 def doctor() -> dict:
     """Structured status report for the Setup tab: prerequisites + per-env state."""
+    from . import ace_step
     from .toolrunner import find_ffmpeg, find_uv
 
     def _try(fn) -> str | None:
@@ -198,6 +199,11 @@ def doctor() -> dict:
         "nvidia_smi": find_nvidia_smi(),
         "gpu": gpu_status(),
         "envs": envs,
+        "ace_step": {
+            "cloned": ace_step.is_cloned(),
+            "synced": ace_step.is_synced(),
+            "dir": str(ace_step.dest_dir()),
+        },
     }
 
 

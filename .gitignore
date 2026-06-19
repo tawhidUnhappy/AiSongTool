@@ -7,6 +7,9 @@ venv/
 demucs-uv/.venv/
 whisperx-uv/.venv/
 
+# ACE-Step-1.5 (optional tool) — a full external git clone, not authored here
+ace-step/
+
 # Python cache
 __pycache__/
 *.pyc
