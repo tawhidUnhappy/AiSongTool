@@ -36,4 +36,5 @@ def main(host: str = "0.0.0.0", port: int = 8000) -> None:
         window_size=(1320, 880) if native else None,
         reload=False,
         show_welcome_message=False,
+        dark=True,
     )
