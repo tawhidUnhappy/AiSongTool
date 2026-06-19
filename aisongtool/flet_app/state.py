@@ -1,4 +1,4 @@
-"""Shared in-memory state for the NiceGUI app — one running job at a time,
+"""Shared in-memory state for the Flet app — one running job at a time,
 mirroring the single-job guard the old FastAPI server enforced."""
 from __future__ import annotations
 

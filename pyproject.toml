@@ -4,23 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aisongtool"
-version = "0.7.0"
+version = "0.8.0"
 description = "Generate precise, line-by-line song subtitles using Demucs + WhisperX + lyrics alignment."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 dependencies = [
-  "fastapi>=0.110",
-  "uvicorn[standard]>=0.27",
-  "python-multipart>=0.0.9",
-  "pydantic>=2.0",
-  "nicegui>=3.1.0",
-  "pywebview>=5.0",
-]
-
-[dependency-groups]
-dev = [
-  "pyinstaller>=6.20.0",
+  "flet[all]>=0.85.3",
+  "flet-video>=0.1.0",
 ]
 
 [project.scripts]
@@ -31,3 +22,12 @@ include = ["aisongtool*"]
 
 [tool.setuptools.package-data]
 aisongtool = ["py.typed"]
+
+[tool.flet]
+product = "AiSongTool"
+org = "tawhidUnhappy"
+company = "AiSongTool"
+copyright = "Copyright (c) 2026"
+
+[tool.flet.app]
+path = "aisongtool/flet_app"

@@ -90,7 +90,7 @@ def _app(args: argparse.Namespace) -> int:
         print("[aisongtool] First run: provisioning demucs-uv / whisperx-uv environments with uv...")
         setup_envs()
 
-    from .web.app import main as run_app
+    from .flet_app.app import main as run_app
 
     run_app(host=args.host, port=args.port)
     return 0

@@ -44,53 +44,48 @@ jobs:
           echo "AISONGTOOL_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
       - name: Sync dependencies
-        run: uv sync --group dev
+        run: uv sync
 
       - name: Sanity check package
         run: |
           uv run python -m compileall -q aisongtool
           uv run aisongtool --version
 
-      - name: Build standalone app
-        run: uv run pyinstaller packaging/aisongtool.spec --distpath dist --workpath build-tmp --noconfirm --clean
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
 
-      - name: Install Inno Setup
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: choco install innosetup --yes --no-progress
-
-      - name: Create Windows installer
-        if: matrix.platform == 'windows'
-        shell: pwsh
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'linux'
         run: |
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          & $iscc "/DMyAppVersion=$env:AISONGTOOL_VERSION" "packaging\aisongtool.iss"
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libmpv-dev
+
+      - name: Build standalone app
+        run: uv run flet build ${{ matrix.platform }} --build-version "$AISONGTOOL_VERSION" --yes -v
+        shell: bash
 
       - name: Package Windows portable
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force release-assets | Out-Null
-          Compress-Archive -Path "dist\AiSongTool\*" -DestinationPath "release-assets\AiSongTool-windows.zip" -Force
-          Copy-Item "dist\AiSongTool-Setup-$env:AISONGTOOL_VERSION.exe" "release-assets\"
+          Compress-Archive -Path "dist\windows\*" -DestinationPath "release-assets\AiSongTool-windows.zip" -Force
 
       - name: Package Linux portable
         if: matrix.platform == 'linux'
         shell: bash
         run: |
           mkdir -p release-assets
-          tar -C dist -czf "release-assets/AiSongTool-linux.tar.gz" AiSongTool
+          tar -C dist/linux -czf "release-assets/AiSongTool-linux.tar.gz" .
 
       - name: Package macOS portable
         if: matrix.platform == 'macos'
         shell: bash
         run: |
           mkdir -p release-assets
-          if [ -d "dist/AiSongTool.app" ]; then
-            tar -C dist -czf "release-assets/AiSongTool-macos.tar.gz" AiSongTool.app
-          else
-            tar -C dist -czf "release-assets/AiSongTool-macos.tar.gz" AiSongTool
-          fi
+          tar -C dist/macos -czf "release-assets/AiSongTool-macos.tar.gz" .
 
       - name: Upload build assets
         uses: actions/upload-artifact@v4
@@ -119,7 +114,7 @@ jobs:
           body: |
             ## AiSongTool ${{ github.ref_name }}
 
-            Python + uv build. No Rust/Tauri wrapper is used.
+            Python + uv + Flet (Material 3 UI) build. No Rust/Tauri wrapper is used.
 
             On first launch, open the **Setup** tab and click "Run setup" to provision the
             Demucs/WhisperX environments (requires `uv` on PATH and an internet connection —
@@ -129,15 +124,14 @@ jobs:
             ### Downloads
 
             #### Windows
-            - `AiSongTool-Setup-*.exe` - installer
-            - `AiSongTool-windows.zip` - portable folder
+            - `AiSongTool-windows.zip` - portable folder, run `AiSongTool.exe`
 
             #### Linux
-            - `AiSongTool-linux.tar.gz` - portable folder
+            - `AiSongTool-linux.tar.gz` - portable folder, run `./aisongtool` (or the bundled binary)
 
             #### macOS
-            - `AiSongTool-macos.tar.gz` - portable app/folder
+            - `AiSongTool-macos.tar.gz` - portable `.app` bundle
 
-            Double-click the app or run `aisongtool app` to open it.
+            Or, with `uv` + `git`: `uv tool install --editable .` then `aisongtool app`.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

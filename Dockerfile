@@ -28,11 +28,8 @@ WORKDIR /app
 # Main app deps
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir \
-        "fastapi>=0.110" \
-        "uvicorn[standard]>=0.27" \
-        "python-multipart>=0.0.9" \
-        "pydantic>=2.0" \
-        "nicegui>=3.1.0"
+        "flet[all]>=0.85.3" \
+        "flet-video>=0.1.0"
 
 # Demucs venv — pin torch before demucs so pip cannot upgrade it
 RUN python -m venv /opt/venvs/demucs

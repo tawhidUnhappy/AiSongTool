@@ -17,20 +17,23 @@ aisongtool setup                # provisions demucs-uv/ + whisperx-uv/ (auto-det
 aisongtool app                  # opens the AiSongTool desktop app
 ```
 
-`aisongtool app` opens a native desktop window with four tabs:
+`aisongtool app` opens a native desktop window — built with [Flet](https://flet.dev), so
+the UI is genuine Material 3 (the design language Android 15 ships), with a bottom
+navigation bar and four destinations:
 
-- **Generate Subtitles** — upload a song (+ optional lyrics), run the pipeline, download SRT/ASS/VTT/LRC/SBV.
-- **Make Video** — pick a completed job, supply a background image, render an MP4 with
+- **Generate** — pick a song (+ optional lyrics) with the native file picker, run the
+  pipeline, save copies of the resulting SRT/ASS/VTT/LRC/SBV files anywhere on disk.
+- **Video** — pick a completed job, supply a background image, render an MP4 with
   word-by-word karaoke-highlighted lyrics burned in.
 - **Terminal** — live output from whatever's currently running (pipeline, ffmpeg, setup).
-- **Setup** — GPU/uv/ffmpeg status and a button to (re)provision the isolated environments.
+- **Setup** — GPU/uv/ffmpeg status and buttons to (re)provision the isolated environments.
 
 `aisongtool setup` auto-detects an NVIDIA GPU via `nvidia-smi` and installs the matching
 CUDA or CPU torch build into two isolated `uv` environments (`demucs-uv/`, `whisperx-uv/`),
 mirroring the Docker images' two-venv split so Demucs and WhisperX never fight over a
 shared torch version. Re-run it with `--cpu` or `--cuda` to force a build, or `--force`
 to rewrite the env definitions. `ffmpeg` (for the video feature) is a separate prerequisite
-checked on the Setup tab — install it system-wide and ensure it's on `PATH`.
+checked on the Setup view — install it system-wide and ensure it's on `PATH`.
 
 `aisongtool app` runs the provisioning step automatically on first launch if you skip it.
 
@@ -50,7 +53,7 @@ aisongtool ace-step api            # REST API server (uv run acestep-api)
 aisongtool ace-step download       # pre-fetch model checkpoints (uv run acestep-download)
 ```
 
-Both are also available from the **Setup** tab in the desktop app. `aisongtool install-tool
+Both are also available from the **Setup** view in the desktop app. `aisongtool install-tool
 ace-step --update` pulls the latest changes and re-syncs. Requires `git` and `uv` on `PATH`;
 downloads several GB on first install.
 
@@ -138,10 +141,10 @@ On Windows, Docker Desktop handles GPU passthrough automatically once drivers ar
 
 ### Lyric Video
 
-The **Make Video** tab takes a completed job's audio + word-level timing (only
+The **Video** view takes a completed job's audio + word-level timing (only
 available when lyrics were supplied without segment mode) and a background image
-you upload, and burns in word-by-word karaoke-highlighted lyrics over the image with
-`ffmpeg`. Requires `ffmpeg` on `PATH` — checked on the Setup tab.
+you pick, and burns in word-by-word karaoke-highlighted lyrics over the image with
+`ffmpeg`. Requires `ffmpeg` on `PATH` — checked on the Setup view.
 
 ---
 

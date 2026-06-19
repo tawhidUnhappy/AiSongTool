@@ -1,4 +1,4 @@
-"""Subprocess spawning + output streaming, shared by every page that runs an
+"""Subprocess spawning + output streaming, shared by every view that runs an
 external command (the pipeline CLI, ffmpeg, `aisongtool setup`)."""
 from __future__ import annotations
 
@@ -18,9 +18,10 @@ def spawn_cli(cmd: list[str], cwd: Path | None = None, on_exit: OnExit | None = 
     """Run `cmd`, streaming combined stdout/stderr into the terminal ring
     buffer line-by-line, and report the exit code via `on_exit`.
 
-    `on_exit` runs on a background thread — it must only mutate plain data
-    (flags, dicts), never touch `ui.*` elements directly. Pages poll that data
-    with their own `ui.timer` instead (see web/pages/generate.py)."""
+    `on_exit` runs on a background thread. Flet's `page.update()`/
+    `control.update()` are safe to call from a background thread, but views
+    still poll plain state via a timer for consistency with the rest of the
+    app (see flet_app/views/generate.py)."""
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONUTF8"] = "1"

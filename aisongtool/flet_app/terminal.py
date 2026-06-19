@@ -1,4 +1,4 @@
-"""Ring-buffer log capture feeding the Terminal tab's `ui.xterm()`.
+"""Ring-buffer log capture feeding the Terminal view's log pane.
 
 Subprocess output is fed in explicitly via `append()` (see jobs.py); stdout/
 stderr of the app process itself is also tee'd in via `install_tee()` so
