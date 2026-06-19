@@ -41,7 +41,7 @@ def render() -> None:
     job = {"image_path": None, "out_path": None, "returncode": None}
 
     with ui.row().classes("w-full gap-6 no-wrap items-start"):
-        with ui.column().classes("w-96 gap-2"):
+        with ui.card().classes("w-96 gap-2 q-pa-md"):
             ui.label("1. Pick a completed job").classes("text-bold")
             ui.label("Only jobs generated with lyrics and without segment mode "
                       "have the word-timing data this needs.").classes("text-caption text-grey")
@@ -55,7 +55,7 @@ def render() -> None:
             render_button = ui.button("Render video", icon="movie").classes("w-full q-mt-md")
             status_label = ui.label("Pick a job and upload a background image.").classes("text-grey q-mt-sm")
 
-        with ui.column().classes("flex-1 gap-2") as results_col:
+        with ui.card().classes("flex-1 gap-2 q-pa-md") as results_col:
             ui.label("Output").classes("text-bold")
             ui.label("Your rendered video appears here.").classes("text-grey")
 

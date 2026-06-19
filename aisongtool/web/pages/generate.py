@@ -50,7 +50,7 @@ def render() -> None:
     job = {"job_dir": None, "out_dir": None, "song_path": None, "stem": "captions", "returncode": None}
 
     with ui.row().classes("w-full gap-6 no-wrap items-start"):
-        with ui.column().classes("w-96 gap-2"):
+        with ui.card().classes("w-96 gap-2 q-pa-md"):
             ui.label("1. Upload song").classes("text-bold")
             upload = ui.upload(label="Song file (mp3/wav/m4a/...)", auto_upload=True,
                                 max_file_size=_MAX_UPLOAD_BYTES).classes("w-full") \
@@ -70,7 +70,7 @@ def render() -> None:
             run_button = ui.button("Generate", icon="play_arrow").classes("w-full q-mt-md")
             status_label = ui.label("Upload a song to begin.").classes("text-grey q-mt-sm")
 
-        with ui.column().classes("flex-1 gap-2") as results_col:
+        with ui.card().classes("flex-1 gap-2 q-pa-md") as results_col:
             ui.label("Outputs").classes("text-bold")
             ui.label("Downloads appear here once a run finishes.").classes("text-grey")
 

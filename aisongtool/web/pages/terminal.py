@@ -9,11 +9,12 @@ from .. import terminal as terminal_buffer
 
 
 def render() -> None:
-    term = ui.xterm({
-        "convertEol": True,
-        "scrollback": 20_000,
-        "theme": {"background": "#101010", "foreground": "#e0e0e0"},
-    }).classes("w-full h-full")
+    with ui.card().classes("w-full h-full q-pa-sm"):
+        term = ui.xterm({
+            "convertEol": True,
+            "scrollback": 20_000,
+            "theme": {"background": "#1C1B1F", "foreground": "#E6E1E5"},
+        }).classes("w-full h-full")
 
     cursor = {"pos": 0}
 
