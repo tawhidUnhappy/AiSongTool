@@ -15,14 +15,20 @@
 // Sources:
 //  - Windows/Linux: BtbN's `ffmpeg-master-latest-{win64,linux64}-lgpl` GitHub
 //    Actions release builds (https://github.com/BtbN/FFmpeg-Builds).
-//  - macOS: BtbN doesn't publish macOS builds; evermeet.cx's static builds
-//    are the commonly-used alternative — verify license terms/build flags
-//    there before shipping a real release (not independently confirmed
-//    here).
-import { createWriteStream, mkdirSync, chmodSync, rmSync, existsSync } from 'fs'
+//  - macOS: no equivalent prebuilt LGPL static build exists upstream that
+//    could be license-verified here (third-party static-build sites
+//    typically bundle GPL-licensed x264/x265) — instead this compiles a
+//    minimal ffmpeg from its own official source tarball directly on the
+//    macOS runner with `--disable-gpl --disable-nonfree`, so the license is
+//    verifiably LGPL by construction rather than trusted from a download.
+//    Slower (~10-15min) than just downloading a prebuilt binary, but it's a
+//    one-time cost per release build.
+import { createWriteStream, mkdirSync, chmodSync, rmSync, existsSync, copyFileSync } from 'fs'
 import path from 'path'
+import os from 'os'
 import { fileURLToPath } from 'url'
 import { pipeline } from 'stream/promises'
+import { execFileSync } from 'child_process'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const OUT_DIR = path.join(__dirname, '..', 'resources', 'ffmpeg')
@@ -38,15 +44,71 @@ const SOURCES = {
     archive: 'tar',
     binNames: ['ffmpeg', 'ffprobe']
   }
-  // mac: intentionally omitted — see header comment. Add once a specific
-  // verified LGPL build URL is picked.
+  // mac: handled separately by buildMacFromSource() below, not a prebuilt
+  // download — see header comment.
+}
+
+const FFMPEG_SOURCE_VERSION = '7.1.1'
+
+async function buildMacFromSource() {
+  mkdirSync(OUT_DIR, { recursive: true })
+  const buildDir = path.join(OUT_DIR, '_build')
+  mkdirSync(buildDir, { recursive: true })
+
+  console.log('Installing build dependencies via Homebrew (nasm, pkg-config, lame, opus, libvpx)...')
+  execFileSync('brew', ['install', 'nasm', 'pkg-config', 'lame', 'opus', 'libvpx'], { stdio: 'inherit' })
+
+  const tarPath = path.join(buildDir, 'ffmpeg.tar.xz')
+  const srcUrl = `https://ffmpeg.org/releases/ffmpeg-${FFMPEG_SOURCE_VERSION}.tar.xz`
+  console.log(`Downloading ffmpeg ${FFMPEG_SOURCE_VERSION} source from ${srcUrl} ...`)
+  const resp = await fetch(srcUrl)
+  if (!resp.ok) throw new Error(`Download failed: ${resp.status}`)
+  await pipeline(resp.body, createWriteStream(tarPath))
+
+  console.log('Extracting source...')
+  execFileSync('tar', ['-xJf', tarPath, '-C', buildDir])
+  const srcDir = path.join(buildDir, `ffmpeg-${FFMPEG_SOURCE_VERSION}`)
+
+  console.log('Configuring (LGPL-only: --disable-gpl --disable-nonfree)...')
+  execFileSync(
+    './configure',
+    [
+      '--disable-gpl',
+      '--disable-nonfree',
+      '--enable-version3',
+      '--disable-debug',
+      '--disable-doc',
+      '--disable-ffplay',
+      '--enable-videotoolbox',
+      '--enable-audiotoolbox',
+      '--enable-libmp3lame',
+      '--enable-libopus',
+      '--enable-libvpx',
+      '--enable-zlib'
+    ],
+    { cwd: srcDir, stdio: 'inherit' }
+  )
+
+  console.log('Building (make)...')
+  execFileSync('make', [`-j${os.cpus().length}`], { cwd: srcDir, stdio: 'inherit' })
+
+  for (const binName of ['ffmpeg', 'ffprobe']) {
+    copyFileSync(path.join(srcDir, binName), path.join(OUT_DIR, binName))
+    chmodSync(path.join(OUT_DIR, binName), 0o755)
+  }
+  rmSync(buildDir, { recursive: true, force: true })
+  console.log(`ffmpeg/ffprobe built (LGPL-only) and ready in ${OUT_DIR}`)
 }
 
 async function main() {
   const target = process.argv[2] ?? { win32: 'win', linux: 'linux', darwin: 'mac' }[process.platform]
+  if (target === 'mac') {
+    await buildMacFromSource()
+    return
+  }
   const source = SOURCES[target]
   if (!source) {
-    console.error(`No ffmpeg source configured for '${target}'. Known: ${Object.keys(SOURCES).join(', ')}`)
+    console.error(`No ffmpeg source configured for '${target}'. Known: ${Object.keys(SOURCES).join(', ')}, mac`)
     process.exit(1)
   }
 
@@ -59,7 +121,6 @@ async function main() {
   await pipeline(resp.body, createWriteStream(archivePath))
 
   console.log('Extracting...')
-  const { execFileSync } = await import('child_process')
   if (source.archive === 'zip') {
     execFileSync('unzip', ['-o', archivePath, '-d', path.join(OUT_DIR, '_extract')])
   } else {
@@ -70,7 +131,7 @@ async function main() {
   // BtbN's archives nest a single top-level `ffmpeg-*-lgpl/bin/` directory —
   // find and copy just the two binaries we need, flat into OUT_DIR. No
   // `glob` dependency needed for a one-level-deep search like this.
-  const { copyFileSync, readdirSync, statSync } = await import('fs')
+  const { readdirSync, statSync } = await import('fs')
   function findFile(dir, name) {
     for (const entry of readdirSync(dir)) {
       const full = path.join(dir, entry)
