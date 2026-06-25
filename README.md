@@ -1,74 +1,92 @@
 # AiSongTool
 
-AI-powered song subtitle generator. Upload any audio file and get perfectly timed, line-by-line lyrics subtitles in SRT, VTT, ASS, LRC, and SBV formats.
+Generate a full song — AI music generation, vocal separation, transcription/alignment,
+and a finished lyric video — from one prompt, or just turn an existing song into
+perfectly-timed subtitles. Desktop app for Windows, macOS, and Linux, fully self-contained.
 
-**Pipeline:** Vocal separation (Demucs) → Speech-to-text (WhisperX) → Lyrics alignment → Subtitle output
+**Pipeline:** Song generation (ACE-Step-1.5, optional) → Vocal separation (Demucs) →
+Speech-to-text (WhisperX) → Lyrics alignment → Subtitles + lyric video
 
 ---
 
-## Quick Start
+## Download (Windows / macOS / Linux)
 
-### Native, with uv (no Docker)
+Grab the latest build from the
+[Releases page](https://github.com/tawhidUnhappy/AiSongTool/releases) — each release
+ships both a portable build (no install, run from anywhere) and a system installer:
 
-```bash
-cd AiSongTool
-uv tool install --editable .   # installs the `aisongtool` command, uv's own Python
-aisongtool setup                # provisions demucs-uv/ + whisperx-uv/ (auto-detects your GPU)
-aisongtool app                  # opens the AiSongTool desktop app
-```
+| Platform | Installer                          | Portable             |
+| -------- | ----------------------------------- | --------------------- |
+| Windows  | `*-setup.exe`                       | `*-portable.exe`       |
+| macOS    | `*.dmg` (drag to Applications)      | `*.zip` (unzip and run) |
+| Linux    | `*.deb` (`sudo apt install ./*.deb`) | `*.AppImage`           |
 
-`aisongtool app` opens a native desktop window — built with [Flet](https://flet.dev), so
-the UI is genuine Material 3 (the design language Android 15 ships), with a bottom
-navigation bar and four destinations:
+`ffmpeg`/`ffprobe` are bundled — no separate install needed. `git` and
+[`uv`](https://docs.astral.sh/uv/) must already be on your system `PATH`; the app uses
+them to provision everything else (the main environment, and any of WhisperX/Demucs/
+Z-Image/Gemma 4/ACE-Step-1.5 you choose to install) on first run.
 
-- **Create** — the main flow: generate a song with ACE-Step-1.5 (or pick/upload an
-  existing one), which automatically runs vocal separation (Demucs) + transcription/
-  alignment (WhisperX) to produce SRT/ASS/VTT/LRC/SBV + karaoke timing, then pick a
-  background image and confirm which processed song to use, and generate the final
-  **lyrics nightcore video** (sped-up/pitched-up audio with the karaoke lyrics retimed to
-  match, burned in over your image) — one guided flow, fully automated end to end. Every
-  uploaded/generated song and image along the way is selectable from a dropdown, not just
-  the one you just made. Lets you choose an output folder up front so the final files land
-  exactly where you want.
+Builds are unsigned (no paid code-signing certificate) — Windows SmartScreen / macOS
+Gatekeeper will warn on first launch; that's expected, not a sign anything's wrong.
+
+### First run
+
+1. Open the **Setup** tab. It shows the app's one data folder (every model, cache, job,
+   and setting this app ever writes lives there — see [Self-contained](#self-contained)
+   below) and lets you provision the environments you need.
+2. Click **Run setup**, then install whichever optional tools you want (ACE-Step-1.5 for
+   song generation, Z-Image for background images, Gemma 4 for AI-written lyrics/prompts).
+   Each downloads its own models on first use — expect several GB and a real wait the
+   first time.
+3. Head to **Create** and generate a song, or **Tools** to just subtitle/edit an existing
+   one.
+
+### Self-contained
+
+Every model, cache (Hugging Face, torch, `uv`), job, output file, and setting this app
+writes lives under **one** data folder (shown at the top of the Setup tab) — never
+`~/.cache`, `%LOCALAPPDATA%`, or any other shared system location. Deleting that one
+folder, or uninstalling (Windows NSIS installer and Linux `.deb` both clean it up
+automatically; macOS ships a small "Uninstall AiSongTool" helper in the DMG), removes
+everything this app has ever written — no leftover caches, no orphaned models.
+
+---
+
+## What it does
+
+- **Create** — the main flow: generate a song with ACE-Step-1.5 (prompt + optional
+  lyrics, or let Gemma 4 write the song name/style/lyrics/image prompt for you) or
+  pick/upload an existing one. Either way it automatically runs vocal separation
+  (Demucs) and transcription/alignment (WhisperX) to produce SRT/ASS/VTT/LRC/SBV +
+  karaoke timing, generates or lets you pick a background image, and renders the final
+  lyric video — optionally with the nightcore speed/pitch edit, on by default. One
+  guided flow, end to end.
 - **Tools** — the single-purpose pieces, for when you don't want the full flow:
   *Subtitles* (song → SRT/ASS/VTT/LRC/SBV only), *Lyric Video* (existing job + image →
   plain-speed lyric video), *Nightcore* (any song + image → sped-up edit, no lyrics).
-- **Terminal** — live output from whatever's currently running (pipeline, ffmpeg, setup).
-- **Setup** — GPU/uv/ffmpeg status and buttons to (re)provision the isolated environments.
+- **Terminal** — live output from whatever's currently running (pipeline, ffmpeg, setup,
+  model installs).
+- **Setup** — GPU/`uv`/ffmpeg status, the data folder path, and buttons to (re)provision
+  every environment.
 
-`aisongtool setup` auto-detects an NVIDIA GPU via `nvidia-smi` and installs the matching
-CUDA or CPU torch build into two isolated `uv` environments (`demucs-uv/`, `whisperx-uv/`),
-mirroring the Docker images' two-venv split so Demucs and WhisperX never fight over a
-shared torch version. Re-run it with `--cpu` or `--cuda` to force a build, or `--force`
-to rewrite the env definitions. `ffmpeg` (for the video feature) is a separate prerequisite
-checked on the Setup view — install it system-wide and ensure it's on `PATH`.
+### Optional tools, each in their own isolated environment
 
-`aisongtool app` runs the provisioning step automatically on first launch if you skip it.
-
-#### Optional: ACE-Step-1.5 (music generation)
-
-[ACE-Step-1.5](https://github.com/ACE-Step/ACE-Step-1.5) is a separate, optional music
-generation model. It has a large, fast-moving dependency set of its own (vLLM, diffusers,
-its own pinned CUDA torch build) that would conflict with AiSongTool's main env and with
-demucs-uv/whisperx-uv, so it's installed the same isolated-`uv`-env way, but as a full git
-clone of its own project (it ships its own `pyproject.toml`/`uv.lock`, unlike demucs-uv/
-whisperx-uv, which AiSongTool authors itself):
-
-```bash
-aisongtool install-tool ace-step   # clones https://github.com/ACE-Step/ACE-Step-1.5 + `uv sync`
-aisongtool ace-step app            # Gradio UI (uv run acestep)
-aisongtool ace-step api            # REST API server (uv run acestep-api)
-aisongtool ace-step download       # pre-fetch model checkpoints (uv run acestep-download)
-```
-
-Installing it is also available from the **Setup** view; once installed, the **Create**
-flow drives it directly. `aisongtool install-tool
-ace-step --update` pulls the latest changes and re-syncs. Requires `git` and `uv` on `PATH`;
-downloads several GB on first install.
+Demucs, WhisperX, Z-Image (background images), Gemma 4 (AI-written song
+name/style/lyrics/image prompts, and language detection), and
+[ACE-Step-1.5](https://github.com/ACE-Step/ACE-Step-1.5) (song generation) each install
+into their own `uv`-managed environment so their dependencies never conflict with each
+other. ACE-Step-1.5 in particular ships its own `pyproject.toml`/`uv.lock` (a full `git
+clone` + `uv sync`, not an environment AiSongTool authors itself) and picks the right
+CUDA/MPS/ROCm/CPU `torch` build automatically. All of it installs from the **Setup** tab;
+GPU (NVIDIA) is auto-detected and used when present, falling back to CPU otherwise.
 
 ---
 
-### CPU (works on any machine)
+## Running from source / headless (Docker)
+
+The desktop app is the primary way to use AiSongTool. For a headless server deployment
+(no GUI), a separate Docker image is also maintained — it exposes the core subtitle
+pipeline (no Electron, no ACE-Step) over HTTP:
 
 ```bash
 docker run -p 8000:8000 \
@@ -77,11 +95,8 @@ docker run -p 8000:8000 \
   tawhidunhappy/aisongtool:latest
 ```
 
-Then open [http://localhost:8000](http://localhost:8000)
-
----
-
-### GPU (faster — requires NVIDIA GPU + drivers)
+Then open [http://localhost:8000](http://localhost:8000). GPU build (`:gpu`, needs
+[nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)):
 
 ```bash
 docker run --gpus all -p 8000:8000 \
@@ -90,82 +105,50 @@ docker run --gpus all -p 8000:8000 \
   tawhidunhappy/aisongtool:gpu
 ```
 
----
-
-### Docker Compose
-
-**CPU:**
-
-```bash
-docker compose up
-```
-
-**GPU:**
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
-```
-
----
-
-## Tags
+Or with Docker Compose: `docker compose up` (CPU) / `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up` (GPU).
 
 | Tag      | Size (pull) | GPU required | Description                |
 | -------- | ----------- | ------------ | -------------------------- |
 | `latest` | ~1.5 GB     | No           | CPU-only, works everywhere |
 | `cpu`    | ~1.5 GB     | No           | Same as latest             |
-| `gpu`    | ~10 GB      | Yes (NVIDIA) | CUDA 12.1, much faster     |
+| `gpu`    | ~10 GB      | Yes (NVIDIA) | CUDA, much faster          |
+
+### Building the desktop app yourself
+
+```bash
+git clone https://github.com/tawhidUnhappy/AiSongTool.git
+cd AiSongTool/desktop
+npm install
+npm run dev          # run in dev mode
+npm run build:win    # or build:mac / build:linux — produces installers in desktop/dist/
+```
+
+`build:mac`/`build:linux`/`build:win` each fetch (or, on macOS, compile from source) a
+static LGPL ffmpeg/ffprobe build into `desktop/resources/ffmpeg/` before packaging — see
+`desktop/scripts/fetch-ffmpeg.mjs`.
 
 ---
 
-## GPU Requirements
-
-To use the `:gpu` image you need:
-
-1. NVIDIA GPU (any CUDA 12.1 compatible card)
-2. Up-to-date NVIDIA drivers installed on your machine
-3. [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) installed
-
-On Windows, Docker Desktop handles GPU passthrough automatically once drivers are installed.
-
----
-
-## How It Works
-
-1. **Upload** an audio file (MP3, WAV, M4A, AAC, FLAC, OGG, Opus) and paste your lyrics
-2. **Demucs** separates vocals from the music
-3. **WhisperX** transcribes and timestamps every word
-4. **Alignment** matches your lyrics to the transcribed words
-5. **Download** your subtitles in any format
-
-### Output Formats
+## Output Formats
 
 | Format | Use for                                      |
-| ------ | -------------------------------------------- |
-| `.srt` | Most video editors (Premiere, DaVinci, etc.) |
-| `.ass` | Styled karaoke subtitles                     |
-| `.vtt` | Web / YouTube                                |
-| `.lrc` | Music players                                |
-| `.sbv` | YouTube captions                             |
-
-### Lyric Video
-
-Both rely on a completed job's word-level timing (only available when lyrics were
-supplied without segment mode) and a background image, burning in word-by-word
-karaoke-highlighted lyrics with `ffmpeg`. Requires `ffmpeg` on `PATH` — checked on the
-Setup view.
-
-- The **Create** flow's final step additionally speeds up + pitches up the audio (the
-  classic nightcore edit) and retimes the lyrics to match, so they stay in sync.
-- The **Tools → Lyric Video** sub-tab does the plain-speed version only.
+| ------ | --------------------------------------------- |
+| `.srt` | Most video editors (Premiere, DaVinci, etc.)  |
+| `.ass` | Styled karaoke subtitles                      |
+| `.vtt` | Web / YouTube                                 |
+| `.lrc` | Music players                                 |
+| `.sbv` | YouTube captions                              |
 
 ---
 
 ## Notes
 
-- AI models (~3–6 GB) are downloaded on **first run** and cached in the mounted volumes. Subsequent runs are instant.
-- Only one job runs at a time (pipeline or video render) — the UI tells you if one's already in progress.
-- For private/gated HuggingFace models, set `HF_TOKEN` in your environment.
+- AI models are downloaded on first use of each tool and cached in the app's one data
+  folder (or the mounted Docker volumes, for the headless image). Subsequent runs are
+  instant.
+- Only one job runs at a time (generation, pipeline, or video render) — the UI tells you
+  if one's already in progress.
+- For private/gated Hugging Face models, set `HF_TOKEN` in your environment.
 
 ---
 
