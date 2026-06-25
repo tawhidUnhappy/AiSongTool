@@ -23,6 +23,7 @@ const api = {
   stopGui: (name: string): Promise<void> => ipcRenderer.invoke('stop-gui', name),
   isGuiRunning: (name: string): Promise<boolean> => ipcRenderer.invoke('is-gui-running', name),
   getDoctorStatus: (): Promise<DoctorStatus> => ipcRenderer.invoke('get-doctor-status'),
+  getDataDir: (): Promise<string> => ipcRenderer.invoke('get-data-dir'),
   terminateJob: (): Promise<void> => ipcRenderer.invoke('terminate-job'),
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke('get-settings'),
   setSetting: <K extends Exclude<keyof AppSettings, 'promptHistory' | 'imagePromptHistory' | 'referenceSongHistory'>>(

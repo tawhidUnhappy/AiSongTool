@@ -139,7 +139,7 @@ def _doctor(args: argparse.Namespace) -> int:
 
 def _ace_step(args: argparse.Namespace) -> int:
     try:
-        return ace_step.launch_blocking()
+        return ace_step.launch_blocking(args.entry, args.extra_args)
     except ace_step.AceStepError as exc:
         print(f"[ace-step] {exc}", file=sys.stderr)
         return 1
@@ -188,8 +188,11 @@ def main() -> int:
     install_tool_ap.set_defaults(func=_install_tool)
 
     ace_step_ap = sub.add_parser(
-        "ace-step", help="Launch the ACE-Step (acestep.cpp) server + WebUI"
+        "ace-step", help="Launch ACE-Step-1.5 (music generation) from its isolated env"
     )
+    ace_step_ap.add_argument("entry", choices=list(ace_step.ENTRY_POINTS), default="app", nargs="?",
+                             help="app=Gradio UI, api=REST server, download=fetch checkpoints (default: app)")
+    ace_step_ap.add_argument("extra_args", nargs=argparse.REMAINDER, help="Extra args passed through to ACE-Step")
     ace_step_ap.set_defaults(func=_ace_step)
 
     args = ap.parse_args()

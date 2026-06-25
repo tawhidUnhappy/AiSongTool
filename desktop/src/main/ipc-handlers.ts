@@ -15,7 +15,8 @@ import {
   stopNamedGui,
   terminateCurrentJob
 } from './jobs'
-import { mainVenvPython, repoRoot } from './paths'
+import { mainVenvPython, dataDir } from './paths'
+import { ensureMainEnv } from './bootstrap'
 import * as aceStep from './tools/ace-step'
 import * as zimage from './tools/zimage'
 import * as gemmaWriter from './tools/gemma-writer'
@@ -63,33 +64,30 @@ const SUBTITLE_OUTPUTS = [
 
 export function registerIpcHandlers(): void {
   ipcMain.handle('run-setup', async (event) => {
+    const onData = (chunk: string): void => send(event, chunk)
+    await ensureMainEnv(onData)
     const cmd = [mainVenvPython(), '-m', 'aisongtool.cli', 'setup']
-    return runBlocking(cmd, repoRoot(), (chunk) => send(event, chunk))
+    return runBlocking(cmd, dataDir(), onData)
   })
 
   ipcMain.handle('install-tool', async (event, name: string) => {
-    if (name === 'ace-step') {
-      try {
-        await aceStep.install((chunk) => send(event, chunk))
-        return 0
-      } catch (exc) {
-        send(event, `${String(exc)}\r\n`)
-        return 1
-      }
-    }
+    // ace-step is now a real `git clone` + `uv sync` install (ACE-Step-1.5,
+    // replacing the old acestep.cpp binary downloads), same shape as
+    // z-image/gemma/syrex — no more special-casing it here, it goes through
+    // the same `aisongtool.cli install-tool` path as everything else.
+    const onData = (chunk: string): void => send(event, chunk)
+    await ensureMainEnv(onData)
     const cmd = [mainVenvPython(), '-m', 'aisongtool.cli', 'install-tool', name]
-    return runBlocking(cmd, repoRoot(), (chunk) => send(event, chunk))
+    return runBlocking(cmd, dataDir(), onData)
   })
 
   ipcMain.handle('launch-ace-step', (event) => {
     const cmd = aceStep.buildServerCmd()
-    spawnDetached(cmd, aceStep.binDir(), (chunk) => send(event, chunk), undefined, 'ace-step')
-    // ace-server.exe serves its own WebUI at the same host:port — give it a
-    // moment to come up before opening the browser (no /health endpoint
-    // worth polling here; a fixed delay is fine for a local UI launch, unlike
-    // the Create pipeline's server start which actually needs to know when
-    // model loading finishes).
-    setTimeout(() => shell.openExternal('http://127.0.0.1:8080'), 2000)
+    spawnDetached(cmd, aceStep.destDir(), (chunk) => send(event, chunk), undefined, 'ace-step')
+    // Give the API server a moment to come up before opening the browser —
+    // model loading on first request can take a while, but this just opens
+    // the (already-listening) local URL, not waiting on a generation.
+    setTimeout(() => shell.openExternal('http://127.0.0.1:8001'), 2000)
   })
 
   ipcMain.handle('stop-gui', (_event, name: string) => stopNamedGui(name))
@@ -107,20 +105,31 @@ export function registerIpcHandlers(): void {
   })
 
   // Gemma's (and Z-Image's) Gradio server can take a while to come up —
-  // unlike ace-server.exe's near-instant native binary start, model loading
-  // makes a fixed post-launch delay unreliable — so the renderer offers an
-  // explicit "open in browser" action instead of trying to auto-open it.
+  // model loading makes a fixed post-launch delay unreliable — so the
+  // renderer offers an explicit "open in browser" action instead of trying
+  // to auto-open it.
   ipcMain.handle('open-external', (_event, url: string) => shell.openExternal(url))
 
   ipcMain.handle('get-doctor-status', async () => {
+    // First call after a fresh packaged install has no main venv yet —
+    // silent here (no terminal pane open at this point) but only runs once
+    // per app launch (ensureMainEnv no-ops immediately after).
+    await ensureMainEnv(() => {})
     const cmd = [mainVenvPython(), '-m', 'aisongtool.cli', 'doctor']
-    const stdout = await runCapture(cmd, repoRoot())
+    const stdout = await runCapture(cmd, dataDir())
     return JSON.parse(stdout)
   })
 
   ipcMain.handle('terminate-job', () => {
     terminateCurrentJob()
   })
+
+  // Setup view's "Data folder: <path>" line — the one directory everything
+  // this app writes lives under (see paths.ts's dataDir()); deleting it (or
+  // uninstalling, which does this automatically — see electron-builder.yml's
+  // deleteAppDataOnUninstall/deb-after-remove.sh/Uninstall .command) resets
+  // the app to a completely clean state.
+  ipcMain.handle('get-data-dir', () => dataDir())
 
   ipcMain.handle('get-settings', () => getSettings())
 
@@ -171,14 +180,14 @@ export function registerIpcHandlers(): void {
     vad: VAD_OPTIONS
   }))
 
-  // Lets the Setup view fetch a newly-selected ACE-Step LM/DiT variant
-  // on demand (without re-running the whole install flow) — reuses
-  // aceStep.install()'s downloadPlan, which already skips files already on
-  // disk and only fetches whatever the current settings.ts selection needs.
+  // Lets the Setup view pre-fetch ACE-Step-1.5's checkpoints on demand,
+  // without waiting for the first real generation request to trigger the
+  // download lazily.
   ipcMain.handle('download-ace-step-models', async (event) => {
     try {
-      await aceStep.install((chunk) => send(event, chunk))
-      return 0
+      const cmd = aceStep.buildDownloadModelsCmd()
+      const code = await runBlocking(cmd, aceStep.destDir(), (chunk) => send(event, chunk))
+      return code
     } catch (exc) {
       send(event, `${String(exc)}\r\n`)
       return 1

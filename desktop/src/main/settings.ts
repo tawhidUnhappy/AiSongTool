@@ -4,7 +4,7 @@
  * model dropdowns. */
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
-import { repoRoot } from './paths'
+import { dataDir } from './paths'
 
 export interface AppSettings {
   aceStepLmModel: string
@@ -55,22 +55,17 @@ export interface AppSettings {
   toolsSeparateVocals: boolean
 }
 
-// Defaults picked to fit comfortably in 12GB VRAM while maximizing quality:
-// acestep.cpp loads one component at a time (LM, then text/lyric encoders,
-// then DiT, then VAE — never all at once, confirmed from its own server
-// logs), so peak VRAM is bounded by the single largest component, not the
-// sum. The XL DiT's largest single component (Q8_0) is ~4.9GB and the 4B LM
-// Q8_0 is ~4.2GB — both far under 12GB with room for KV-cache/activations.
-//
-// DiT defaults to the *turbo* (8-step, distilled) XL variant rather than
-// *sft* (50-step full diffusion) — confirmed reports of glitchy audio with
-// the sft variant, and a 50-step full-diffusion run has much more room for
-// numerical drift to compound in a GGUF-quantized reimplementation than an
-// 8-step distilled model does. Turbo at XL (4B) size is still a large
-// quality upgrade over the original 2B turbo default.
+// ACE-Step-1.5 (the original diffusers/vLLM model, replacing the earlier
+// GGUF-quantized acestep.cpp port — see ace-step.ts) needs noticeably more
+// VRAM per component unquantized. Per its own README's hardware matrix, the
+// 2B DiT (turbo or sft) + a 0.6-1.7B LM fits comfortably in the 8-16GB tier
+// most consumer GPUs are in; the XL (4B) DiT + 4B LM combo needs 20GB+. This
+// app can't assume a specific card the way the old default tuned for the
+// dev machine's 12GB 3060 — default to the smaller, broadly-compatible tier
+// and let Setup's dropdowns opt up on bigger hardware.
 export const DEFAULT_SETTINGS: AppSettings = {
-  aceStepLmModel: 'acestep-5Hz-lm-4B-Q8_0.gguf',
-  aceStepDitModel: 'acestep-v15-xl-turbo-Q8_0.gguf',
+  aceStepLmModel: 'acestep-5Hz-lm-1.7B',
+  aceStepDitModel: 'acestep-v15-turbo',
   whisperModel: 'large-v3',
   gemmaModel: 'google/gemma-4-E4B-it',
   promptHistory: [],
@@ -108,7 +103,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 }
 
 function settingsPath(): string {
-  return path.join(repoRoot(), 'desktop-settings.json')
+  return path.join(dataDir(), 'desktop-settings.json')
 }
 
 export function getSettings(): AppSettings {

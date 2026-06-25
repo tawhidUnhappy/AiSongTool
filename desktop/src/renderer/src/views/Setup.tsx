@@ -45,6 +45,7 @@ export function Setup(): React.JSX.Element {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [modelOptions, setModelOptions] = useState<ModelOptions | null>(null)
   const [downloadingAceStep, setDownloadingAceStep] = useState(false)
+  const [dataDir, setDataDir] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setStatus(await window.api.getDoctorStatus())
@@ -54,6 +55,7 @@ export function Setup(): React.JSX.Element {
     refresh()
     window.api.getSettings().then(setSettings)
     window.api.getModelOptions().then(setModelOptions)
+    window.api.getDataDir().then(setDataDir)
   }, [refresh])
 
   const updateSetting = async <
@@ -97,6 +99,12 @@ export function Setup(): React.JSX.Element {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto' }}>
+      {dataDir && (
+        <div style={{ fontSize: 12, color: 'var(--ev-c-text-2)' }}>
+          Data folder: <code>{dataDir}</code> — every model, cache, job, and setting this app writes lives here.
+          Delete it (or uninstall) to fully reset.
+        </div>
+      )}
       <div style={{ border: '1px solid #333', borderRadius: 6, padding: 16 }}>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           <button onClick={runSetup} disabled={runningSetup}>
@@ -139,16 +147,16 @@ export function Setup(): React.JSX.Element {
       </div>
 
       <ToolCard
-        title="Optional: ACE-Step (music generation)"
-        description="Prebuilt binaries + GGUF-quantized models (acestep.cpp) downloaded straight into
-          acestep-cpp/ — no isolated Python/CUDA env of its own (~4.2GB total)."
+        title="Optional: ACE-Step-1.5 (music generation)"
+        description="Clones github.com/ACE-Step/ACE-Step-1.5 and runs its own `uv sync` into an isolated
+          env — model checkpoints download from Hugging Face on first use, not from this app."
         installLabel="Install / update ACE-Step"
         onInstall={() => installAndRefresh('ace-step')}
         statusText={
           status?.ace_step.synced
             ? `Installed at ${status.ace_step.dir}`
             : status?.ace_step.cloned
-              ? 'Binaries downloaded, but models are missing — click Install / update.'
+              ? 'Cloned, but not yet synced — click Install / update.'
               : 'Not installed yet.'
         }
         extra={

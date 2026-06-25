@@ -92,8 +92,8 @@ def generate_song(flow: dict, prompt: str, lyrics: str, duration: float, options
         if not ace_step_api.is_server_up():
             flow["stage"] = "gen_starting_server"
             flow["stage_started_at"] = time.monotonic()
-            cmd = ace_step.build_server_cmd()
-            server_proc = jobs.spawn_background(cmd, cwd=ace_step.bin_dir())
+            cmd = ace_step.build_run_cmd("api")
+            server_proc = jobs.spawn_background(cmd, cwd=ace_step.dest_dir())
             if not ace_step_api.wait_for_server(timeout=300, log=terminal.append):
                 flow["error_message"] = "ACE-Step API server did not start in time."
                 terminal.append(flow["error_message"] + "\n")

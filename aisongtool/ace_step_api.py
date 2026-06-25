@@ -1,10 +1,16 @@
-"""HTTP client for acestep.cpp's `ace-server` (https://github.com/ServeurpersoCom/acestep.cpp).
+"""HTTP client for ACE-Step-1.5's own `acestep-api` REST server
+(https://github.com/ACE-Step/ACE-Step-1.5) — replaces the earlier client for
+acestep.cpp's `ace-server` (a two-stage `/lm` + `/synth` + `/job?id=` job
+protocol). ACE-Step-1.5's API is a single async job queue instead:
+`POST /release_task` submits one task (caption+lyrics -> a finished song in
+one step), `POST /query_result` polls it by `task_id`, and the finished file
+is fetched via a plain `GET /v1/audio?path=...` download.
 
-Mirrors `desktop/src/main/tools/ace-step-api.ts` (the actively-used,
-live-tested Electron client) — see that file's docstring for the full
-protocol explanation. This Python copy backs the (currently lower-priority,
-kept-running-in-parallel) Flet app's "Song Generation" view and has not
-itself been exercised against a live server yet.
+Mirrors `desktop/src/main/tools/ace-step-api.ts` — see that file's docstring
+for the same protocol explanation. This Python copy backs the Flet app's
+Docker-only "Song Generation" view (see `flet_app/views/_create_pipeline.py`)
+and has not itself been exercised against a live server yet, same caveat as
+the TS client it mirrors.
 """
 from __future__ import annotations
 
@@ -14,12 +20,12 @@ from typing import Callable
 
 import httpx
 
-from .ace_step import selected_model_files
+from .ace_step import DEFAULT_DIT_MODEL
 
 LogFn = Callable[[str], None]
 
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 8080
+DEFAULT_PORT = 8001
 
 
 class AceStepApiError(RuntimeError):
@@ -61,7 +67,7 @@ def generate_song(
     log: LogFn = print,
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
-    song_name: str = "",
+    model: str = DEFAULT_DIT_MODEL,
     vocal_language: str = "en",
     instrumental: bool = False,
     seed: int | None = None,
@@ -69,37 +75,42 @@ def generate_song(
     timeout: float = 600.0,
     on_progress: LogFn | None = None,
 ) -> Path:
-    """Submit caption(+lyrics) -> /lm for audio codes -> /synth for audio,
-    polling each job, then save the result.
+    """Submit one `/release_task` (caption+lyrics -> a finished song in a
+    single job, no separate codes/audio stages like acestep.cpp's
+    `/lm`+`/synth`), poll `/query_result` until done, then download the
+    finished file from `/v1/audio?path=...`.
 
     `prompt`/`lyrics` are always treated as literal — the caller has already
-    resolved who wrote them (manual text or Gemma 4) before this is called.
-    `instrumental=True` forces `lyrics="[Instrumental]"` (acestep.cpp's
-    documented convention). `vocal_language` should already be resolved to a
-    real code (e.g. via Gemma 4 language detection) rather than left as
-    "unknown" — see ace-step-api.ts for the full explanation of why leaving
-    it blank is unsafe."""
-    models = selected_model_files()
+    resolved who wrote them (manual text or Gemma 4). `instrumental=True`
+    sends empty lyrics (no separate "[Instrumental]" convention confirmed for
+    this API, unlike acestep.cpp's documented one). `vocal_language` should
+    already be resolved to a real code rather than left as "unknown"."""
     base = _base_url(host, port)
-    lm_body: dict = {
-        "duration": duration,
+    task_body: dict = {
+        "task_type": "text2music",
+        "prompt": prompt,
+        "lyrics": "" if instrumental else lyrics,
+        "audio_duration": duration,
         "vocal_language": "en" if vocal_language == "unknown" else vocal_language,
         "seed": -1 if seed is None else seed,
-        "lm_model": models["lm"],
-        "use_cot_caption": False,
-        "caption": prompt,
-        "lyrics": "[Instrumental]" if instrumental else lyrics,
+        "batch_size": 1,
+        "model": model,
     }
-    if song_name.strip():
-        lm_body["track"] = song_name.strip()
 
-    log(f"POST {base}/lm {lm_body}")
+    log(f"POST {base}/release_task {task_body}")
     try:
         with httpx.Client(timeout=30.0) as client:
-            lm_result = _run_job(client, base, "/lm", lm_body, log, poll_interval, timeout, on_progress, "lm")
-            synth_body = {**lm_result, "synth_model": models["dit"], "output_format": "mp3"}
-            log(f"POST {base}/synth")
-            audio_bytes = _run_synth_job(client, base, synth_body, log, poll_interval, timeout, on_progress)
+            task_id = _release_task(client, base, task_body, log)
+            result = _poll_result(client, base, task_id, log, poll_interval, timeout, on_progress)
+            file_path = result.get("file")
+            if not file_path:
+                raise AceStepApiError(f"task {task_id} succeeded but returned no file path: {result}")
+
+            log(f"GET {base}{file_path}")
+            audio_resp = client.get(f"{base}{file_path}", timeout=120.0)
+            if audio_resp.status_code != 200:
+                raise AceStepApiError(f"Downloading result audio failed ({audio_resp.status_code})")
+            audio_bytes = audio_resp.content
     except Exception as exc:  # noqa: BLE001
         log(f"Generation failed: {exc!r}")
         raise
@@ -111,112 +122,50 @@ def generate_song(
     return out_path
 
 
-def _post_json(client: httpx.Client, url: str, body: dict, timeout: float) -> httpx.Response:
-    return client.post(url, json=body, timeout=timeout)
+def _release_task(client: httpx.Client, base: str, body: dict, log: LogFn) -> str:
+    resp = client.post(f"{base}/release_task", json=body, timeout=30.0)
+    if resp.status_code != 200:
+        raise AceStepApiError(f"/release_task failed ({resp.status_code}): {resp.text}")
+    task_id = (resp.json() or {}).get("data", {}).get("task_id")
+    if not task_id:
+        raise AceStepApiError(f"/release_task returned no task_id: {resp.text}")
+    log(f"task submitted: {task_id}")
+    return task_id
 
 
-def _poll_job(
-    client: httpx.Client, base: str, job_id: str, log: LogFn, poll_interval: float, timeout: float,
-    on_progress: LogFn | None, label: str,
-) -> None:
+def _poll_result(
+    client: httpx.Client, base: str, task_id: str, log: LogFn, poll_interval: float, timeout: float,
+    on_progress: LogFn | None,
+) -> dict:
+    import json as _json
+
     deadline = time.monotonic() + timeout
     last_status = None
     while time.monotonic() < deadline:
         time.sleep(poll_interval)
         try:
-            resp = client.get(f"{base}/job", params={"id": job_id}, timeout=30.0)
+            resp = client.post(f"{base}/query_result", json={"task_id_list": [task_id]}, timeout=30.0)
         except httpx.HTTPError as exc:
             log(f"Poll request failed ({exc!r}) — server may still be loading models, retrying...")
             continue
         if resp.status_code != 200:
-            log(f"/job?id={job_id} returned {resp.status_code}, retrying...")
+            log(f"/query_result returned {resp.status_code}, retrying...")
             continue
-        status = (resp.json() or {}).get("status", "unknown")
+        items = (resp.json() or {}).get("data", [])
+        item = next((i for i in items if i.get("task_id") == task_id), None)
+        if item is None:
+            log(f"/query_result didn't include task {task_id} yet, retrying...")
+            continue
+        status = item.get("status")
         if status != last_status:
-            log(f"{label} job {job_id}: {status}")
+            label = {0: "running", 1: "succeeded", 2: "failed"}.get(status, str(status))
+            log(f"task {task_id}: {label}")
             last_status = status
             if on_progress:
-                on_progress(f"{label}: {status}")
-        if status == "done":
-            return
-        if status in ("failed", "cancelled"):
-            raise AceStepApiError(f"{label} job {job_id} {status}")
-    raise AceStepApiError(f"{label} job {job_id} timed out after {timeout:.0f}s.")
-
-
-def _run_job(
-    client: httpx.Client, base: str, endpoint: str, body: dict, log: LogFn, poll_interval: float,
-    timeout: float, on_progress: LogFn | None, label: str,
-) -> dict:
-    resp = _post_json(client, f"{base}{endpoint}", body, 120.0)
-    if resp.status_code != 200:
-        raise AceStepApiError(f"{endpoint} failed ({resp.status_code}): {resp.text}")
-    job_id = resp.json().get("id")
-    if not job_id:
-        raise AceStepApiError(f"{endpoint} returned no job id: {resp.text}")
-    log(f"{label} job submitted: {job_id}")
-    _poll_job(client, base, job_id, log, poll_interval, timeout, on_progress, label)
-
-    result_resp = client.get(f"{base}/job", params={"id": job_id, "result": 1}, timeout=60.0)
-    if result_resp.status_code != 200:
-        raise AceStepApiError(f"Fetching {label} result failed ({result_resp.status_code}): {result_resp.text}")
-    items = result_resp.json()
-    if not items:
-        raise AceStepApiError(f"{label} job {job_id} returned no result items.")
-    return items[0]
-
-
-def _run_synth_job(
-    client: httpx.Client, base: str, body: dict, log: LogFn, poll_interval: float, timeout: float,
-    on_progress: LogFn | None,
-) -> bytes:
-    resp = _post_json(client, f"{base}/synth", body, 120.0)
-    if resp.status_code != 200:
-        raise AceStepApiError(f"/synth failed ({resp.status_code}): {resp.text}")
-    job_id = resp.json().get("id")
-    if not job_id:
-        raise AceStepApiError(f"/synth returned no job id: {resp.text}")
-    log(f"synth job submitted: {job_id}")
-    _poll_job(client, base, job_id, log, poll_interval, timeout, on_progress, "synth")
-
-    result_resp = client.get(f"{base}/job", params={"id": job_id, "result": 1}, timeout=60.0)
-    if result_resp.status_code != 200:
-        raise AceStepApiError(f"Fetching synth result failed ({result_resp.status_code}): {result_resp.text}")
-    content_type = result_resp.headers.get("content-type", "")
-    if "boundary=" not in content_type:
-        raise AceStepApiError(f"/synth result wasn't multipart (content-type: {content_type})")
-    boundary = content_type.split("boundary=")[1].strip('"').split(";")[0]
-    for content_type_part, part_body in _split_multipart(result_resp.content, boundary):
-        if content_type_part.lower().startswith("audio/"):
-            return part_body
-    raise AceStepApiError("/synth multipart result had no audio part")
-
-
-def _split_multipart(buffer: bytes, boundary: str) -> list[tuple[str, bytes]]:
-    """Minimal multipart/mixed parser — see ace-step-api.ts's `splitMultipart`
-    for the matching implementation/rationale."""
-    delimiter = f"--{boundary}".encode()
-    parts: list[tuple[str, bytes]] = []
-    search_from = 0
-    while True:
-        start = buffer.find(delimiter, search_from)
-        if start == -1:
-            break
-        after_delim = start + len(delimiter)
-        if buffer[after_delim:after_delim + 2] == b"--":
-            break
-        next_delim = buffer.find(delimiter, after_delim)
-        if next_delim == -1:
-            break
-        part = buffer[after_delim:next_delim]
-        header_end = part.find(b"\r\n\r\n")
-        if header_end != -1:
-            header_text = part[:header_end].decode("utf-8", errors="replace")
-            content_type = ""
-            for line in header_text.splitlines():
-                if line.lower().startswith("content-type:"):
-                    content_type = line.split(":", 1)[1].strip()
-            body = part[header_end + 4:len(part) - 2]
-            parts.append((content_type, body))
-        search_from = next_delim
-    return parts
+                on_progress(f"generating: {label}")
+        if status == 1:
+            result = item.get("result")
+            return _json.loads(result) if result else {}
+        if status == 2:
+            raise AceStepApiError(f"task {task_id} failed: {item.get('result') or '(no detail)'}")
+    raise AceStepApiError(f"task {task_id} timed out after {timeout:.0f}s.")

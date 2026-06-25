@@ -8,9 +8,6 @@ on:
 permissions:
   contents: write
 
-env:
-  PYTHON_VERSION: "3.12"
-
 jobs:
   build:
     name: Build - ${{ matrix.platform }}
@@ -19,73 +16,56 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: windows
+          - platform: win
             os: windows-latest
           - platform: linux
             os: ubuntu-22.04
-          - platform: macos
+          - platform: mac
             os: macos-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          node-version: "20"
 
-      - name: Install uv
-        run: python -m pip install uv
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
 
-      - name: Set version
-        shell: bash
-        run: |
-          echo "AISONGTOOL_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-
-      - name: Sync dependencies
-        run: uv sync
-
-      - name: Sanity check package
-        run: |
-          uv run python -m compileall -q aisongtool
-          uv run aisongtool --version
-
-      - name: Install Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-
-      - name: Install Linux build dependencies
+      - name: Install Linux build dependencies (AppImage/deb tooling)
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libmpv-dev
+          sudo apt-get install -y --no-install-recommends rpm
 
-      - name: Build standalone app
-        run: uv run flet build ${{ matrix.platform }} --build-version "$AISONGTOOL_VERSION" --yes -v
-        shell: bash
+      # The Electron app's `aisongtool/`/`workers/`/`font/` resources, and
+      # everything those need at runtime (uv, the isolated ML envs/models),
+      # are NOT bundled here — only the app shell + bundled static ffmpeg
+      # ship in the installer (see electron-builder.yml's extraResources and
+      # paths.ts's bootstrap.ts). Models/envs install on first run from the
+      # Setup view, straight from HF/PyPI into the app's one self-contained
+      # data root, exactly like a local dev run already does.
+      # `-- --publish never`: this job only builds artifacts and uploads them
+      # to the workflow run (see the next step) — the separate `release` job
+      # below is the one and only place that publishes to a GitHub Release,
+      # so electron-builder's own (config-implied, since electron-builder.yml
+      # sets `publish: provider: github`) auto-publish must stay off here to
+      # avoid two competing uploads of the same tag.
+      - name: Build installers (${{ matrix.platform }})
+        working-directory: desktop
+        run: npm run build:${{ matrix.platform }} -- --publish never
 
-      - name: Package Windows portable
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force release-assets | Out-Null
-          Compress-Archive -Path "dist\windows\*" -DestinationPath "release-assets\AiSongTool-windows.zip" -Force
-
-      - name: Package Linux portable
-        if: matrix.platform == 'linux'
-        shell: bash
-        run: |
-          mkdir -p release-assets
-          tar -C dist/linux -czf "release-assets/AiSongTool-linux.tar.gz" .
-
-      - name: Package macOS portable
-        if: matrix.platform == 'macos'
+      - name: Collect artifacts
         shell: bash
         run: |
           mkdir -p release-assets
-          tar -C dist/macos -czf "release-assets/AiSongTool-macos.tar.gz" .
+          find desktop/dist -maxdepth 1 -type f \
+            \( -name '*.exe' -o -name '*.dmg' -o -name '*.zip' -o -name '*.AppImage' -o -name '*.deb' \) \
+            -exec cp {} release-assets/ \;
 
       - name: Upload build assets
         uses: actions/upload-artifact@v4
@@ -114,24 +94,31 @@ jobs:
           body: |
             ## AiSongTool ${{ github.ref_name }}
 
-            Python + uv + Flet (Material 3 UI) build. No Rust/Tauri wrapper is used.
+            Electron desktop app. On first launch, open the **Setup** tab — it provisions
+            everything else (the main environment, Demucs/WhisperX/Z-Image/Gemma/ACE-Step-1.5,
+            and any models you select) automatically into one self-contained app-data folder
+            (shown at the top of the Setup tab). Requires an internet connection for that first
+            run; `uv` and `git` are required and not auto-installed. ffmpeg/ffprobe are bundled —
+            no separate install needed.
 
-            On first launch, open the **Setup** tab and click "Run setup" to provision the
-            Demucs/WhisperX environments (requires `uv` on PATH and an internet connection —
-            downloads several GB of models/CUDA wheels). `ffmpeg` on PATH is also required
-            for the "Make Video" tab.
+            Deleting that one app-data folder (or uninstalling, on Windows/Linux) removes
+            everything this app has ever written — no caches or models left anywhere else.
 
             ### Downloads
 
             #### Windows
-            - `AiSongTool-windows.zip` - portable folder, run `AiSongTool.exe`
-
-            #### Linux
-            - `AiSongTool-linux.tar.gz` - portable folder, run `./aisongtool` (or the bundled binary)
+            - `*-setup.exe` — installer (Start Menu shortcut, clean uninstall)
+            - `*-portable.exe` — run from anywhere, no install
 
             #### macOS
-            - `AiSongTool-macos.tar.gz` - portable `.app` bundle
+            - `*.dmg` — drag-to-Applications install (includes an Uninstall helper)
+            - `*.zip` — portable `.app`, run from anywhere
 
-            Or, with `uv` + `git`: `uv tool install --editable .` then `aisongtool app`.
+            #### Linux
+            - `*.AppImage` — portable, run from anywhere
+            - `*.deb` — system install (`apt install ./*.deb`)
+
+            Unsigned builds: Windows SmartScreen / macOS Gatekeeper will warn on first launch
+            (no paid code-signing certificate for this release) — this is expected.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

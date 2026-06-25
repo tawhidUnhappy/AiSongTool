@@ -22,8 +22,14 @@ desktop/out/
 desktop/dist/
 desktop/*.tsbuildinfo
 
-# ACE-Step (acestep.cpp) — downloaded prebuilt binaries + GGUF models, not
-# authored here
+# Bundled static ffmpeg/ffprobe — fetched per-OS at build time by
+# desktop/scripts/fetch-ffmpeg.mjs, not committed (binary, OS-specific, ~100MB+)
+desktop/resources/ffmpeg/
+
+# ACE-Step — `git clone`+`uv sync`'d into the data root at runtime, not
+# authored here (acestep-cpp/ is the old, now-unused GGUF/C++ backend's
+# download dir, kept ignored in case it's still lying around locally)
+ace-step/
 acestep-cpp/
 
 # Python cache
@@ -31,10 +37,12 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Build artifacts
-*.egg-info/
-dist/
-build/
+# Build artifacts — anchored to the repo root (setuptools' own build/ dir),
+# NOT desktop/build/, which is hand-authored electron-builder config
+# (icons, entitlements, uninstall helper scripts) that must be committed.
+/*.egg-info/
+/dist/
+/build/
 
 # Per-user data dir created by frozen installs (see aisongtool/paths.py)
 .aisongtool/

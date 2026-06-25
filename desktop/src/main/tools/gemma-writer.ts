@@ -70,8 +70,8 @@ export function buildWriteImagePromptCmd(prompt: string, outJson: string): strin
 
 /** Same worker script, `--mode detect_language` — `lyrics` should be the
  * literal lyrics text (not a description). Used instead of leaving
- * vocal_language on "Auto" and letting acestep.cpp guess from the caption
- * alone, which has been observed picking a wrong language entirely. */
+ * vocal_language on "Auto" and letting ACE-Step guess from the caption
+ * alone. */
 export function buildDetectLanguageCmd(lyrics: string, outJson: string): string[] {
   return buildModeCmd(lyrics, outJson, 'detect_language')
 }

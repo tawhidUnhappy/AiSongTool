@@ -7,6 +7,7 @@
  */
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import path from 'path'
+import { app } from 'electron'
 import { shortId } from './short-id'
 import * as aceStep from './tools/ace-step'
 import * as aceStepApi from './tools/ace-step-api'
@@ -15,7 +16,7 @@ import * as zimage from './tools/zimage'
 import * as syrex from './tools/syrex'
 import { buildNightcoreAudioCmd, nightcoreVideoInPlace, DEFAULT_SPEED } from './tools/nightcore'
 import { renderVideoWithFallback } from './tools/video'
-import { jobsDir, mainVenvPython, repoRoot } from './paths'
+import { jobsDir, mainVenvPython, dataDir, appResourcesDir } from './paths'
 import { killProcessTree, runBlocking, spawnDetached, type OnData } from './jobs'
 import { waitForGpuMemoryFree } from './gpu'
 import { getSettings } from './settings'
@@ -63,10 +64,10 @@ function freshFlow(): Flow {
 const SKY_TEMPLATE_PROMPT = 'Minimalistic red sky'
 
 let flow: Flow = freshFlow()
-// Defaults to `<repoRoot>/output` so saved artifacts go somewhere
-// predictable out of the box instead of always prompting a save dialog —
-// still overridable via the Create view's "Choose folder" button.
-let outputDir: string = path.join(repoRoot(), 'output')
+// Defaults to `<dataDir>/output` so saved artifacts go somewhere predictable
+// out of the box instead of always prompting a save dialog — still
+// overridable via the Create view's "Choose folder" button.
+let outputDir: string = path.join(dataDir(), 'output')
 
 export function getFlow(): Flow {
   return flow
@@ -135,10 +136,9 @@ async function writeWithGemma(
 }
 
 /** Resolves vocal_language when left on "Auto" — asks Gemma 4 to detect it
- * from the literal lyrics text instead of leaving it blank for acestep.cpp
- * to guess from the caption alone (see ace-step-api.ts's generateSong docs
- * for why that guess has been observed picking a wrong language entirely).
- * Falls back to English on any failure (missing Gemma 4, no lyrics text to
+ * from the literal lyrics text instead of leaving it blank for ACE-Step to
+ * guess from the caption alone. Falls back to English on any failure
+ * (missing Gemma 4, no lyrics text to
  * detect from, etc.) rather than aborting the run. */
 async function detectLanguage(lyrics: string, onData: OnData): Promise<string> {
   if (!lyrics.trim() || !gemmaWriter.isSynced()) return 'en'
@@ -189,7 +189,7 @@ async function generateSong(
       flow.stage = 'gen_starting_server'
       flow.stageStartedAt = Date.now()
       const cmd = aceStep.buildServerCmd()
-      serverPid = spawnDetached(cmd, aceStep.binDir(), onData)
+      serverPid = spawnDetached(cmd, aceStep.destDir(), onData)
       if (!(await aceStepApi.waitForServer(undefined, undefined, 300_000, onData))) {
         flow.errorMessage = 'ACE-Step API server did not start in time.'
         onData(flow.errorMessage + '\r\n')
@@ -607,5 +607,11 @@ export function startRun(params: RunAllParams, onData: OnData): void {
 }
 
 export function defaultBackgroundImage(): string {
-  return path.join(repoRoot(), 'aisongtool', 'flet_app', 'assets', 'nightcore_default_bg.png')
+  // electron-builder auto-bundles desktop/resources/* straight into
+  // process.resourcesPath (no extra `to:` mapping needed, unlike the
+  // explicit aisongtool/workers/font extraResources entries) — dev mode has
+  // no such flattening, so it reads the file at its actual repo location.
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'nightcore_default_bg.png')
+    : path.join(appResourcesDir(), 'desktop', 'resources', 'nightcore_default_bg.png')
 }

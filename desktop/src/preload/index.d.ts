@@ -21,6 +21,7 @@ interface Api {
   stopGui: (name: string) => Promise<void>
   isGuiRunning: (name: string) => Promise<boolean>
   getDoctorStatus: () => Promise<DoctorStatus>
+  getDataDir: () => Promise<string>
   terminateJob: () => Promise<void>
   getSettings: () => Promise<AppSettings>
   setSetting: <K extends Exclude<keyof AppSettings, 'promptHistory' | 'imagePromptHistory' | 'referenceSongHistory'>>(

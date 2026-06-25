@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: desktop
+appId: com.aisongtool.app
+productName: AiSongTool
 directories:
   buildResources: build
 files:
@@ -11,14 +11,51 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
+# Everything `paths.ts`'s `appResourcesDir()` (== `process.resourcesPath` in
+# a packaged build) needs to find at runtime: the `aisongtool` Python
+# package's source + its own pyproject.toml/uv.lock (what `uv sync` reads to
+# build the main env on first run — see bootstrap.ts), the standalone
+# `workers/` scripts each isolated tool env runs, `font/` (bundled subtitle
+# font), and the default background image moved out of the now-deleted
+# Flet app's assets. None of this is user data — it's read-only application
+# source, shipped with every install. Bundled static ffmpeg/ffprobe (see
+# Phase 3) land in resources/ffmpeg/ the same way once added.
+extraResources:
+  - from: ../aisongtool
+    to: aisongtool
+  - from: ../workers
+    to: workers
+  - from: ../font
+    to: font
+  - from: ../pyproject.toml
+    to: pyproject.toml
+  - from: ../uv.lock
+    to: uv.lock
 win:
-  executableName: desktop
+  executableName: AiSongTool
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+  # Without this, uninstalling only removes the install directory — every
+  # model/cache/job/output this app ever wrote under dataDir()'s per-user
+  # app-data root (see paths.ts) would survive an uninstall, which is exactly
+  # the "real uninstall removes everything" requirement this flag exists for.
+  deleteAppDataOnUninstall: true
+portable:
+  artifactName: ${name}-${version}-portable.${ext}
 mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
@@ -31,13 +68,14 @@ dmg:
 linux:
   target:
     - AppImage
-    - snap
     - deb
-  maintainer: electronjs.org
+  maintainer: AiSongTool
   category: Utility
 appImage:
   artifactName: ${name}-${version}.${ext}
+deb:
+  artifactName: ${name}-${version}.${ext}
+  afterRemove: build/linux/deb-after-remove.sh
 npmRebuild: false
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github

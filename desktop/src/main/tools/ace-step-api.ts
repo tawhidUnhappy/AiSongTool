@@ -1,20 +1,21 @@
 /**
- * HTTP client for acestep.cpp's `ace-server` (https://github.com/ServeurpersoCom/acestep.cpp).
- * Replaces the old client for the original diffusers-based ACE-Step-1.5
- * REST API (`/release_task` + `/query_result`) — acestep.cpp's `ace-server`
- * speaks a different, simpler job protocol: `POST /lm` (caption+lyrics ->
- * audio codes), `POST /synth` (codes -> audio), both returning `{id}` and
- * polled via `GET /job?id=`. See acestep.cpp's docs/ARCHITECTURE.md for the
- * full AceRequest field reference.
+ * HTTP client for ACE-Step-1.5's own `acestep-api` REST server
+ * (https://github.com/ACE-Step/ACE-Step-1.5) — replaces the earlier client
+ * for `acestep.cpp`'s `ace-server` (a two-stage `/lm` + `/synth` + `/job?id=`
+ * job protocol). ACE-Step-1.5's API is a single async job queue instead:
+ * `POST /release_task` submits one task (caption+lyrics -> a finished song
+ * in one step, no separate codes-then-audio stages), `POST /query_result`
+ * polls it by `task_id`, and the finished file is fetched via a plain
+ * `GET /v1/audio?path=...` download — no multipart response to parse.
  */
 import { mkdirSync, writeFileSync } from 'fs'
 import path from 'path'
-import { selectedModelFiles } from './ace-step'
+import { getSettings } from '../settings'
 
 export type LogFn = (line: string) => void
 
 const DEFAULT_HOST = '127.0.0.1'
-const DEFAULT_PORT = 8080
+const DEFAULT_PORT = 8001
 
 export class AceStepApiError extends Error {}
 
@@ -63,7 +64,10 @@ export interface GenerateSongOptions {
   log?: LogFn
   host?: string
   port?: number
-  /** Song title — maps to AceRequest's `track` field. */
+  /** Song title — not a documented `/release_task` field; kept for
+   * parity with the caller's existing options, currently unused by the
+   * request body (ACE-Step-1.5 has no equivalent "track name" metadata
+   * field confirmed upstream). */
   songName?: string
   vocalLanguage?: string
   instrumental?: boolean
@@ -75,23 +79,29 @@ export interface GenerateSongOptions {
 
 type AceRequest = Record<string, unknown>
 
-/** Submit caption(+lyrics) -> /lm for audio codes -> /synth for audio,
- * polling each job, then save the result.
+interface ReleaseTaskResponse {
+  data?: { task_id?: string }
+  code?: number
+  error?: string | null
+}
+
+interface QueryResultItem {
+  task_id: string
+  status: number // 0 = queued/running, 1 = succeeded, 2 = failed
+  result?: string // JSON string: { file, metas, ... }
+}
+
+/** Submit one `/release_task` (caption+lyrics -> a finished song in a single
+ * job, no separate codes/audio stages like acestep.cpp's `/lm`+`/synth`),
+ * poll `/query_result` until done, then download the finished file from
+ * `/v1/audio?path=...`.
  *
- * `prompt`/`lyrics` are always treated as literal — the caller (create-
- * pipeline.ts) has already resolved who wrote them (manual text or Gemma 4)
- * before this is called, so there's no "let acestep.cpp's own LM expand a
- * short description" mode here anymore (that's `use_cot_caption`, kept off
- * unconditionally to avoid the model silently rewriting a caption the
- * caller already finalized). `instrumental=true` forces
- * `lyrics="[Instrumental]"` (acestep.cpp's documented convention — there's
- * no separate boolean field for it). `seed=null` means random
- * (`seed: -1`). `vocalLanguage` should already be resolved to a real code by
- * the caller (e.g. via Gemma 4 language detection) rather than left as
- * "unknown" — acestep.cpp's own metadata-fill guesses from the caption alone
- * when left blank, and has been observed guessing a wrong language entirely,
- * which then mismatches the literal lyric text and produces weak/garbled
- * vocals easy to mistake for "instrumental only". */
+ * `prompt`/`lyrics` are always literal — the caller (create-pipeline.ts) has
+ * already resolved who wrote them (manual text or Gemma 4). `instrumental`
+ * sends empty lyrics (no separate "[Instrumental]" convention confirmed for
+ * this API, unlike acestep.cpp's documented one). `vocalLanguage` should
+ * already be resolved to a real code by the caller rather than left
+ * "unknown". */
 export async function generateSong(opts: GenerateSongOptions): Promise<string> {
   const {
     prompt,
@@ -101,8 +111,6 @@ export async function generateSong(opts: GenerateSongOptions): Promise<string> {
     log = console.log,
     host = DEFAULT_HOST,
     port = DEFAULT_PORT,
-    songName = '',
-    vocalLanguage = 'en',
     instrumental = false,
     seed = null,
     pollIntervalMs = 2000,
@@ -110,33 +118,37 @@ export async function generateSong(opts: GenerateSongOptions): Promise<string> {
     onProgress
   } = opts
 
-  const models = selectedModelFiles()
   const base = baseUrl(host, port)
-  const lmBody: AceRequest = {
-    duration,
-    vocal_language: vocalLanguage === 'unknown' ? 'en' : vocalLanguage,
+  const settings = getSettings()
+  const taskBody: AceRequest = {
+    task_type: 'text2music',
+    prompt,
+    lyrics: instrumental ? '' : lyrics,
+    audio_duration: duration,
+    vocal_language: opts.vocalLanguage === 'unknown' ? 'en' : opts.vocalLanguage,
     seed: seed === null ? -1 : seed,
-    lm_model: models.lm,
-    use_cot_caption: false,
-    caption: prompt,
-    lyrics: instrumental ? '[Instrumental]' : lyrics
+    batch_size: 1,
+    model: settings.aceStepDitModel
+    // LM model selection (settings.aceStepLmModel) isn't wired here — the
+    // documented `/release_task` fields don't include a separate LM-model
+    // field; `thinking: true` is what enables the 5Hz LM at all, and which
+    // LM checkpoint it uses may be a server-level `/v1/init` concern rather
+    // than per-request. Revisit once tested against a live server.
   }
-  if (songName.trim()) lmBody.track = songName.trim()
 
-  log(`POST ${base}/lm ${JSON.stringify(lmBody)}\r\n`)
+  log(`POST ${base}/release_task ${JSON.stringify(taskBody)}\r\n`)
   try {
-    const lmResult = await runJob(base, '/lm', lmBody, log, pollIntervalMs, timeoutMs, onProgress, 'lm')
-    const synthBody: AceRequest = {
-      ...(lmResult as AceRequest),
-      synth_model: models.dit,
-      output_format: 'mp3'
+    const taskId = await releaseTask(base, taskBody, log)
+    const resultJson = await pollResult(base, taskId, log, pollIntervalMs, timeoutMs, onProgress)
+    const filePath = resultJson.file
+    if (!filePath) throw new AceStepApiError(`Task ${taskId} succeeded but returned no file path: ${JSON.stringify(resultJson)}`)
+
+    log(`GET ${base}${filePath}\r\n`)
+    const audioResp = await fetch(`${base}${filePath}`)
+    if (!audioResp.ok) {
+      throw new AceStepApiError(`Downloading result audio failed (${audioResp.status})`)
     }
-    // Previously logged only the URL, not the body — unlike the /lm log
-    // line below, which prints `lm_model` — so there was no way to
-    // visually confirm from the Terminal pane which DiT/synth model a run
-    // actually used; echoing `synth_model` here closes that gap.
-    log(`POST ${base}/synth synth_model=${synthBody.synth_model}\r\n`)
-    const audioBuffer = await runSynthJob(base, synthBody, log, pollIntervalMs, timeoutMs, onProgress)
+    const audioBuffer = Buffer.from(await audioResp.arrayBuffer())
 
     mkdirSync(outDir, { recursive: true })
     const outPath = path.join(outDir, 'generated.mp3')
@@ -149,162 +161,73 @@ export async function generateSong(opts: GenerateSongOptions): Promise<string> {
   }
 }
 
-async function postJson(url: string, body: unknown, timeoutMs: number): Promise<{ status: number; text: string }> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: controller.signal
-    })
-    return { status: resp.status, text: await resp.text() }
-  } finally {
-    clearTimeout(timer)
+async function releaseTask(base: string, body: AceRequest, log: LogFn): Promise<string> {
+  const resp = await fetch(`${base}/release_task`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  const text = await resp.text()
+  if (!resp.ok) {
+    throw new AceStepApiError(`/release_task failed (${resp.status}): ${text}`)
   }
+  const parsed = JSON.parse(text) as ReleaseTaskResponse
+  const taskId = parsed.data?.task_id
+  if (!taskId) throw new AceStepApiError(`/release_task returned no task_id: ${text}`)
+  log(`task submitted: ${taskId}\r\n`)
+  return taskId
 }
 
-/** Submit a job, poll `GET /job?id=` until done/failed/cancelled. */
-async function pollJob(
+interface ParsedResult {
+  file?: string
+  metas?: Record<string, unknown>
+}
+
+async function pollResult(
   base: string,
-  jobId: string,
+  taskId: string,
   log: LogFn,
   pollIntervalMs: number,
   timeoutMs: number,
-  onProgress: LogFn | undefined,
-  label: string
-): Promise<void> {
+  onProgress: LogFn | undefined
+): Promise<ParsedResult> {
   const deadline = Date.now() + timeoutMs
-  let lastStatus: string | null = null
+  let lastStatus: number | null = null
   while (Date.now() < deadline) {
     await sleep(pollIntervalMs)
     let resp: Response
     try {
-      resp = await fetch(`${base}/job?id=${jobId}`)
+      resp = await fetch(`${base}/query_result`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id_list: [taskId] })
+      })
     } catch (exc) {
       log(`Poll request failed (${String(exc)}) — server may still be loading models, retrying...\r\n`)
       continue
     }
     if (resp.status !== 200) {
-      log(`/job?id=${jobId} returned ${resp.status}, retrying...\r\n`)
+      log(`/query_result returned ${resp.status}, retrying...\r\n`)
       continue
     }
-    const payload = (await resp.json()) as { status?: string }
-    const status = payload.status ?? 'unknown'
-    if (status !== lastStatus) {
-      log(`${label} job ${jobId}: ${status}\r\n`)
-      lastStatus = status
-      onProgress?.(`${label}: ${status}`)
+    const payload = (await resp.json()) as { data?: QueryResultItem[] }
+    const item = payload.data?.find((i) => i.task_id === taskId)
+    if (!item) {
+      log(`/query_result didn't include task ${taskId} yet, retrying...\r\n`)
+      continue
     }
-    if (status === 'done') return
-    if (status === 'failed' || status === 'cancelled') {
-      throw new AceStepApiError(`${label} job ${jobId} ${status}`)
+    if (item.status !== lastStatus) {
+      const label = item.status === 0 ? 'running' : item.status === 1 ? 'succeeded' : 'failed'
+      log(`task ${taskId}: ${label}\r\n`)
+      lastStatus = item.status
+      onProgress?.(`generating: ${label}`)
+    }
+    if (item.status === 1) {
+      return item.result ? (JSON.parse(item.result) as ParsedResult) : {}
+    }
+    if (item.status === 2) {
+      throw new AceStepApiError(`task ${taskId} failed: ${item.result ?? '(no detail)'}`)
     }
   }
-  throw new AceStepApiError(`${label} job ${jobId} timed out after ${Math.round(timeoutMs / 1000)}s.`)
-}
-
-async function runJob(
-  base: string,
-  endpoint: string,
-  body: AceRequest,
-  log: LogFn,
-  pollIntervalMs: number,
-  timeoutMs: number,
-  onProgress: LogFn | undefined,
-  label: string
-): Promise<AceRequest> {
-  const resp = await postJson(`${base}${endpoint}`, body, 120_000)
-  if (resp.status !== 200) {
-    throw new AceStepApiError(`${endpoint} failed (${resp.status}): ${resp.text}`)
-  }
-  const jobId = (JSON.parse(resp.text) as { id?: string }).id
-  if (!jobId) throw new AceStepApiError(`${endpoint} returned no job id: ${resp.text}`)
-  log(`${label} job submitted: ${jobId}\r\n`)
-  await pollJob(base, jobId, log, pollIntervalMs, timeoutMs, onProgress, label)
-
-  const resultResp = await fetch(`${base}/job?id=${jobId}&result=1`)
-  if (resultResp.status !== 200) {
-    throw new AceStepApiError(`Fetching ${label} result failed (${resultResp.status}): ${await resultResp.text()}`)
-  }
-  const items = (await resultResp.json()) as AceRequest[]
-  if (!items || items.length === 0) {
-    throw new AceStepApiError(`${label} job ${jobId} returned no result items.`)
-  }
-  return items[0]
-}
-
-/** Same job lifecycle as `runJob`, but `/synth`'s result is `multipart/mixed`
- * (audio + latents) rather than JSON — pull out just the audio part. */
-async function runSynthJob(
-  base: string,
-  body: AceRequest,
-  log: LogFn,
-  pollIntervalMs: number,
-  timeoutMs: number,
-  onProgress: LogFn | undefined
-): Promise<Buffer> {
-  const resp = await postJson(`${base}/synth`, body, 120_000)
-  if (resp.status !== 200) {
-    throw new AceStepApiError(`/synth failed (${resp.status}): ${resp.text}`)
-  }
-  const jobId = (JSON.parse(resp.text) as { id?: string }).id
-  if (!jobId) throw new AceStepApiError(`/synth returned no job id: ${resp.text}`)
-  log(`synth job submitted: ${jobId}\r\n`)
-  await pollJob(base, jobId, log, pollIntervalMs, timeoutMs, onProgress, 'synth')
-
-  const resultResp = await fetch(`${base}/job?id=${jobId}&result=1`)
-  if (resultResp.status !== 200) {
-    throw new AceStepApiError(`Fetching synth result failed (${resultResp.status}): ${await resultResp.text()}`)
-  }
-  const contentType = resultResp.headers.get('content-type') ?? ''
-  const boundaryMatch = contentType.match(/boundary=("?)([^;"]+)\1/)
-  if (!boundaryMatch) {
-    throw new AceStepApiError(`/synth result wasn't multipart (content-type: ${contentType})`)
-  }
-  const buffer = Buffer.from(await resultResp.arrayBuffer())
-  const parts = splitMultipart(buffer, boundaryMatch[2])
-  const audioPart = parts.find((p) => /^audio\//i.test(p.contentType))
-  if (!audioPart) {
-    throw new AceStepApiError(
-      `/synth multipart result had no audio part (found: ${parts.map((p) => p.contentType).join(', ')})`
-    )
-  }
-  return audioPart.body
-}
-
-interface MultipartPart {
-  contentType: string
-  body: Buffer
-}
-
-/** Minimal `multipart/mixed` parser — just enough to split a response body
- * into its parts and read each one's Content-Type + raw bytes, since Node's
- * `fetch` has no built-in multipart decoder for response bodies (only for
- * constructing outgoing `FormData`). */
-function splitMultipart(buffer: Buffer, boundary: string): MultipartPart[] {
-  const delimiter = Buffer.from(`--${boundary}`)
-  const parts: MultipartPart[] = []
-  let searchFrom = 0
-  for (;;) {
-    const start = buffer.indexOf(delimiter, searchFrom)
-    if (start === -1) break
-    const afterDelim = start + delimiter.length
-    if (buffer.slice(afterDelim, afterDelim + 2).toString() === '--') break // closing boundary
-    const next = buffer.indexOf(delimiter, afterDelim)
-    if (next === -1) break
-    const partBuffer = buffer.slice(afterDelim, next)
-    const headerEnd = partBuffer.indexOf('\r\n\r\n')
-    if (headerEnd !== -1) {
-      const headerText = partBuffer.slice(0, headerEnd).toString('utf8')
-      const ctMatch = headerText.match(/Content-Type:\s*([^\r\n]+)/i)
-      // Trailing \r\n before the next boundary delimiter belongs to the
-      // delimiter line, not the part body.
-      const body = partBuffer.slice(headerEnd + 4, partBuffer.length - 2)
-      parts.push({ contentType: ctMatch ? ctMatch[1].trim() : '', body })
-    }
-    searchFrom = next
-  }
-  return parts
+  throw new AceStepApiError(`task ${taskId} timed out after ${Math.round(timeoutMs / 1000)}s.`)
 }

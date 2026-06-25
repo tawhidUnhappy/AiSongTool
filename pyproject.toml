@@ -9,12 +9,15 @@ description = "Generate precise, line-by-line song subtitles using Demucs + Whis
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-dependencies = [
-  "flet[all]>=0.85.3",
-  "flet-video>=0.1.0",
-  "pyte>=0.8.2",
-  "pywinpty>=3.0.5",
-]
+# flet[all]/flet-video/pyte/pywinpty (the Flet headless-server UI's own
+# deps — see aisongtool/flet_app/, kept alive for the Docker deployment
+# only, see Dockerfile) are intentionally NOT listed here: the Electron
+# desktop app's own main-env `uv sync` reads this same pyproject.toml (see
+# desktop/src/main/bootstrap.ts), and would otherwise drag the entire Flet
+# GUI toolkit into a build that has no use for it. The Dockerfile installs
+# them itself directly, then installs this package with `--no-deps` — so
+# it never relied on this list providing them anyway.
+dependencies = []
 
 [project.scripts]
 aisongtool = "aisongtool.cli:main"

@@ -1,9 +1,11 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
+import { mkdirSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpcHandlers } from './ipc-handlers'
 import { terminateAllJobs } from './jobs'
+import { dataDir } from './paths'
 
 function createWindow(): void {
   // Create the browser window.
@@ -42,7 +44,14 @@ function createWindow(): void {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('com.aisongtool.app')
+
+  // The one writable data root (see paths.ts's dataDir()) — every isolated
+  // env, job, output, cache, and setting this app ever writes lives under
+  // it. Create it up front so a fresh packaged install's very first run
+  // (before Setup has provisioned anything) doesn't hit ENOENT writing
+  // settings/jobs into a directory that doesn't exist yet.
+  mkdirSync(dataDir(), { recursive: true })
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.

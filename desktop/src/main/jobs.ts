@@ -12,6 +12,7 @@
 import { execFile } from 'child_process'
 import * as pty from 'node-pty'
 import treeKill from 'tree-kill'
+import { cacheEnv } from './paths'
 
 export type OnData = (chunk: string) => void
 
@@ -88,13 +89,18 @@ export function isJobRunning(): boolean {
 /** Runs `cmd` to completion, streaming PTY output via `onData`, and
  * resolves with the exit code. Only one job at a time — mirrors jobs.py's
  * single-job lock (`state.set_current_job`/`is_job_running`). */
-export function runBlocking(cmd: string[], cwd: string, onData: OnData): Promise<number> {
+export function runBlocking(
+  cmd: string[],
+  cwd: string,
+  onData: OnData,
+  extraEnv?: Record<string, string>
+): Promise<number> {
   if (currentJob) {
     throw new Error('A job is already running.')
   }
   const [file, ...args] = cmd
   return new Promise((resolve) => {
-    const proc = trackedSpawn(file, args, cwd, process.env)
+    const proc = trackedSpawn(file, args, cwd, { ...process.env, ...cacheEnv(), ...extraEnv })
     currentJob = { pid: proc.pid }
     onData(`$ (cwd=${cwd}) ${formatCmdForDisplay(cmd)}\r\n`)
     proc.onData((chunk) => onData(chunk))
@@ -117,7 +123,7 @@ export function spawnDetached(
   name?: string
 ): number {
   const [file, ...args] = cmd
-  const proc = trackedSpawn(file, args, cwd, { ...process.env, ...extraEnv })
+  const proc = trackedSpawn(file, args, cwd, { ...process.env, ...cacheEnv(), ...extraEnv })
   detachedPids.add(proc.pid)
   if (name) namedDetached.set(name, proc.pid)
   onData(`$ (cwd=${cwd}) ${formatCmdForDisplay(cmd)}\r\n`)
@@ -189,7 +195,7 @@ export function terminateAllJobs(): void {
 export function runCapture(cmd: string[], cwd: string): Promise<string> {
   const [file, ...args] = cmd
   return new Promise((resolve, reject) => {
-    execFile(file, args, { cwd }, (error, stdout) => {
+    execFile(file, args, { cwd, env: { ...process.env, ...cacheEnv() } }, (error, stdout) => {
       if (error) {
         reject(error)
         return
