@@ -58,6 +58,12 @@ async function buildMacFromSource() {
   console.log('Installing build dependencies via Homebrew (nasm, pkg-config, lame, opus, libvpx)...')
   execFileSync('brew', ['install', 'nasm', 'pkg-config', 'lame', 'opus', 'libvpx'], { stdio: 'inherit' })
 
+  // Homebrew installs to /opt/homebrew (Apple Silicon) or /usr/local
+  // (Intel) — neither is on the default compiler/pkg-config search path,
+  // which is why `./configure` couldn't find libmp3lame even though brew
+  // install succeeded. `brew --prefix` resolves to whichever applies here.
+  const brewPrefix = execFileSync('brew', ['--prefix']).toString().trim()
+
   const tarPath = path.join(buildDir, 'ffmpeg.tar.xz')
   const srcUrl = `https://ffmpeg.org/releases/ffmpeg-${FFMPEG_SOURCE_VERSION}.tar.xz`
   console.log(`Downloading ffmpeg ${FFMPEG_SOURCE_VERSION} source from ${srcUrl} ...`)
@@ -84,13 +90,24 @@ async function buildMacFromSource() {
       '--enable-libmp3lame',
       '--enable-libopus',
       '--enable-libvpx',
-      '--enable-zlib'
+      '--enable-zlib',
+      `--extra-cflags=-I${brewPrefix}/include`,
+      `--extra-ldflags=-L${brewPrefix}/lib`,
+      `--pkg-config-flags=--define-prefix`
     ],
-    { cwd: srcDir, stdio: 'inherit' }
+    {
+      cwd: srcDir,
+      stdio: 'inherit',
+      env: { ...process.env, PKG_CONFIG_PATH: `${brewPrefix}/lib/pkgconfig` }
+    }
   )
 
   console.log('Building (make)...')
-  execFileSync('make', [`-j${os.cpus().length}`], { cwd: srcDir, stdio: 'inherit' })
+  execFileSync('make', [`-j${os.cpus().length}`], {
+    cwd: srcDir,
+    stdio: 'inherit',
+    env: { ...process.env, PKG_CONFIG_PATH: `${brewPrefix}/lib/pkgconfig` }
+  })
 
   for (const binName of ['ffmpeg', 'ffprobe']) {
     copyFileSync(path.join(srcDir, binName), path.join(OUT_DIR, binName))
