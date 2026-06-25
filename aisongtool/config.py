@@ -10,6 +10,13 @@ class ToolFolders:
 @dataclass(frozen=True)
 class DemucsConfig:
     model: str = "htdemucs"
+    # Random-shift ensembling (demucs.apply.apply_model's `shifts` param) —
+    # 0 = a single pass (fast, today's default). Each extra shift re-runs
+    # separation on a small random time-shift of the audio and averages the
+    # results, which measurably improves vocal isolation on a heavily
+    # blended mix at a proportional cost in compute time (shifts=N is ~N+1x
+    # slower than shifts=0).
+    shifts: int = 0
 
 @dataclass(frozen=True)
 class WhisperXConfig:
@@ -31,6 +38,14 @@ class LyricsConfig:
     capcut_safe_apostrophes: bool = True
     max_lines_per_cue: int = 2
     segment_mode: bool = False
+    # "auto": use provided lyrics if any, else fall back to the raw WhisperX
+    # transcript (today's behavior). "transcript": always use the transcript,
+    # ignoring any provided lyrics — more reliable when a song skips, repeats,
+    # or otherwise deviates from the literal lyrics text, since aligning
+    # mismatched lyrics against the wrong audio produces wrong timing.
+    # "lyrics": force the lyrics-alignment path (same as "auto" when lyrics
+    # are actually provided).
+    caption_source: str = "auto"
 
 @dataclass(frozen=True)
 class PipelineConfig:

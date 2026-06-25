@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .logging_utils import log
+from .paths import fonts_dir
 from .toolrunner import find_ffmpeg, run_cmd
 
 
@@ -34,7 +35,7 @@ def build_render_cmd(
     vf = (
         f"scale={width}:{height}:force_original_aspect_ratio=increase,"
         f"crop={width}:{height},"
-        f"ass='{_escape_for_ass_filter(karaoke_ass_path)}'"
+        f"ass='{_escape_for_ass_filter(karaoke_ass_path)}':fontsdir='{_escape_for_ass_filter(fonts_dir())}'"
     )
     return [
         ffmpeg, "-y",

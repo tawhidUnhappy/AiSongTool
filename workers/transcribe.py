@@ -267,9 +267,20 @@ def main() -> int:
             **load_kwargs,
         )
 
-    result = model.transcribe(str(audio_path), batch_size=batch_size)
+    try:
+        result = model.transcribe(str(audio_path), batch_size=batch_size)
+    except IndexError as ex:
+        # WhisperX's Silero/pyannote VAD step can find zero speech segments
+        # (e.g. a generated song whose vocal stem is too quiet/instrumental
+        # after Demucs separation) — its own batched-inference pipeline then
+        # indexes into that empty segment list and raises IndexError instead
+        # of returning a result. Treat that the same as "no vocals found"
+        # rather than crashing the whole Create run over it.
+        print(f"[WARN] WhisperX found no speech segments to transcribe (VAD detected none) "
+              f"— continuing with no lyrics. ({ex})")
+        result = {"text": "", "language": language or "en", "segments": []}
 
-    if args.align:
+    if args.align and result.get("segments"):
         try:
             detected_lang = normalize_language_code(
                 result.get("language") or language or "en"

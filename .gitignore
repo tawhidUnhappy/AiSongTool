@@ -1,14 +1,30 @@
 # Runtime
 jobs/
+output/
+desktop-settings.json
 
 # Python environments
 .venv/
 venv/
 demucs-uv/.venv/
 whisperx-uv/.venv/
+zimage-uv/.venv/
+gemma-uv/.venv/
+syrex-uv/.venv/
 
-# ACE-Step-1.5 (optional tool) — a full external git clone, not authored here
-ace-step/
+# Portable dev-only tool runtimes (e.g. Node.js, downloaded as a zip — not a
+# system install, not authored here)
+.tools/
+
+# Electron app (desktop/) — node_modules + build output, not the app's source
+desktop/node_modules/
+desktop/out/
+desktop/dist/
+desktop/*.tsbuildinfo
+
+# ACE-Step (acestep.cpp) — downloaded prebuilt binaries + GGUF models, not
+# authored here
+acestep-cpp/
 
 # Python cache
 __pycache__/

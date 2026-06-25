@@ -21,10 +21,18 @@ aisongtool app                  # opens the AiSongTool desktop app
 the UI is genuine Material 3 (the design language Android 15 ships), with a bottom
 navigation bar and four destinations:
 
-- **Generate** — pick a song (+ optional lyrics) with the native file picker, run the
-  pipeline, save copies of the resulting SRT/ASS/VTT/LRC/SBV files anywhere on disk.
-- **Video** — pick a completed job, supply a background image, render an MP4 with
-  word-by-word karaoke-highlighted lyrics burned in.
+- **Create** — the main flow: generate a song with ACE-Step-1.5 (or pick/upload an
+  existing one), which automatically runs vocal separation (Demucs) + transcription/
+  alignment (WhisperX) to produce SRT/ASS/VTT/LRC/SBV + karaoke timing, then pick a
+  background image and confirm which processed song to use, and generate the final
+  **lyrics nightcore video** (sped-up/pitched-up audio with the karaoke lyrics retimed to
+  match, burned in over your image) — one guided flow, fully automated end to end. Every
+  uploaded/generated song and image along the way is selectable from a dropdown, not just
+  the one you just made. Lets you choose an output folder up front so the final files land
+  exactly where you want.
+- **Tools** — the single-purpose pieces, for when you don't want the full flow:
+  *Subtitles* (song → SRT/ASS/VTT/LRC/SBV only), *Lyric Video* (existing job + image →
+  plain-speed lyric video), *Nightcore* (any song + image → sped-up edit, no lyrics).
 - **Terminal** — live output from whatever's currently running (pipeline, ffmpeg, setup).
 - **Setup** — GPU/uv/ffmpeg status and buttons to (re)provision the isolated environments.
 
@@ -53,7 +61,8 @@ aisongtool ace-step api            # REST API server (uv run acestep-api)
 aisongtool ace-step download       # pre-fetch model checkpoints (uv run acestep-download)
 ```
 
-Both are also available from the **Setup** view in the desktop app. `aisongtool install-tool
+Installing it is also available from the **Setup** view; once installed, the **Create**
+flow drives it directly. `aisongtool install-tool
 ace-step --update` pulls the latest changes and re-syncs. Requires `git` and `uv` on `PATH`;
 downloads several GB on first install.
 
@@ -141,10 +150,14 @@ On Windows, Docker Desktop handles GPU passthrough automatically once drivers ar
 
 ### Lyric Video
 
-The **Video** view takes a completed job's audio + word-level timing (only
-available when lyrics were supplied without segment mode) and a background image
-you pick, and burns in word-by-word karaoke-highlighted lyrics over the image with
-`ffmpeg`. Requires `ffmpeg` on `PATH` — checked on the Setup view.
+Both rely on a completed job's word-level timing (only available when lyrics were
+supplied without segment mode) and a background image, burning in word-by-word
+karaoke-highlighted lyrics with `ffmpeg`. Requires `ffmpeg` on `PATH` — checked on the
+Setup view.
+
+- The **Create** flow's final step additionally speeds up + pitches up the audio (the
+  classic nightcore edit) and retimes the lyrics to match, so they stay in sync.
+- The **Tools → Lyric Video** sub-tab does the plain-speed version only.
 
 ---
 

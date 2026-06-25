@@ -37,7 +37,7 @@ def separate_vocals(song_path: Path, out_dir: Path, tools: ToolFolders, demucs: 
             raise RuntimeError(f"Missing venv: {demucs_python}. Run `aisongtool setup` first.")
 
     cmd = [demucs_python, str(workers_dir / "demucs_separate.py"),
-           str(song_path), str(out_dir), "--model", demucs.model]
+           str(song_path), str(out_dir), "--model", demucs.model, "--shifts", str(demucs.shifts)]
     run_cmd(cmd, cwd=out_dir, log_path=log_path)
 
     vocals_src = find_vocals(out_dir)

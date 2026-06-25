@@ -39,6 +39,45 @@ ENV_SPECS: dict[str, dict] = {
         "deps": ["whisperx==3.7.4"],
         "cuda_index": "https://download.pytorch.org/whl/cu128",
     },
+    "zimage-uv": {
+        # Z-Image-Turbo, via the pre-quantized 4-bit build
+        # (unsloth/Z-Image-Turbo-unsloth-bnb-4bit) rather than the original
+        # Tongyi-MAI/Z-Image-Turbo bf16 weights — about a quarter of the
+        # download (~3-4GB vs ~12GB) and the same fraction of VRAM, and it
+        # works on any CUDA GPU (the FP8 alternative needs NVIDIA Transformer
+        # Engine + a Blackwell-class GPU to actually save VRAM, which most
+        # consumer cards don't have). bitsandbytes deserializes the 4-bit
+        # weights. Needs diffusers from source (the ZImagePipeline isn't in a
+        # PyPI release yet as of writing). torch is pinned (not left to
+        # resolve freely, unlike whisperx-uv) because diffusers' git HEAD has
+        # no floor that keeps it on a version with a published +cu128 wheel —
+        # an unpinned resolve picked 2.12.1, which cu128's index doesn't ship.
+        "deps": [
+            "torch==2.8.0", "diffusers @ git+https://github.com/huggingface/diffusers.git",
+            "transformers", "accelerate", "safetensors", "pillow", "gradio", "bitsandbytes",
+        ],
+        "cuda_index": "https://download.pytorch.org/whl/cu128",
+    },
+    "gemma-uv": {
+        # Gemma 4 (google/gemma-4-E4B-it) — writes song style + lyrics +
+        # image prompt from one short description, for the Create flow's
+        # "Let Gemma 4 write everything" option. 4-bit quantized via
+        # bitsandbytes keeps this to a few GB VRAM.
+        "deps": [
+            "torch==2.8.0", "transformers", "accelerate", "bitsandbytes",
+            "sentencepiece", "protobuf", "gradio",
+        ],
+        "cuda_index": "https://download.pytorch.org/whl/cu128",
+    },
+    "syrex-uv": {
+        # The "Syrex" video template — an audio-reactive visualizer (curved
+        # baseline, tower-shaped frequency spikes, panning background,
+        # bass-driven chromatic aberration). Pure CPU signal processing/image
+        # work (numpy/scipy FFT + opencv frame compositing + Pillow for
+        # custom-font text) — no torch, no GPU, nothing to swap to a CUDA
+        # wheel for (see ensure_env's `spec.get("cuda_index")` guard below).
+        "deps": ["numpy", "scipy", "opencv-python", "pillow"],
+    },
 }
 
 
@@ -102,7 +141,7 @@ def _write_pyproject(dest: Path, name: str, deps: list[str]) -> None:
     (dest / "pyproject.toml").write_text(content, encoding="utf-8")
 
 
-def ensure_env(env_name: str, gpu_mode: str, log: LogFn = print, force: bool = False) -> None:
+def ensure_env(env_name: str, gpu_mode: str, log: LogFn = print) -> None:
     if env_name not in ENV_SPECS:
         raise SetupError(f"unknown env '{env_name}'. Known: {', '.join(ENV_SPECS)}")
     try:
@@ -114,10 +153,17 @@ def ensure_env(env_name: str, gpu_mode: str, log: LogFn = print, force: bool = F
     dest = ROOT / env_name
     dest.mkdir(parents=True, exist_ok=True)
 
-    pyproject = dest / "pyproject.toml"
-    if force or not pyproject.exists():
-        log(f"Writing isolated uv environment definition for {env_name}...")
-        _write_pyproject(dest, env_name, spec["deps"])
+    # Always rewrite pyproject.toml from the current ENV_SPECS entry (cheap,
+    # deterministic — a no-op if nothing changed) rather than only on first
+    # install. Gating this on `pyproject.exists()` meant a later ENV_SPECS
+    # change (e.g. adding "gradio" to zimage-uv's deps) silently never
+    # reached an already-provisioned env: clicking "Install" again looked
+    # like it worked but changed nothing, and the only way to actually pick
+    # up the new dependency was a manual `uv add` outside the app — which
+    # itself re-resolves the whole lockfile and reverts the CUDA torch pin
+    # below, the exact trap this loop now avoids by reapplying it every time.
+    log(f"Writing isolated uv environment definition for {env_name}...")
+    _write_pyproject(dest, env_name, spec["deps"])
 
     log(f"$ uv sync (cwd={dest})")
     proc = subprocess.run([uv, "sync"], cwd=str(dest))
@@ -130,7 +176,9 @@ def ensure_env(env_name: str, gpu_mode: str, log: LogFn = print, force: bool = F
     # `uv sync` later would otherwise revert this, but our runtime invokes the
     # venv's python.exe directly (see toolrunner.venv_python), never `uv run`,
     # so the swapped-in build sticks.
-    if gpu_mode == "cuda":
+    # Envs with no torch dependency at all (e.g. syrex-uv) have no
+    # "cuda_index" entry — nothing to reinstall as a CUDA wheel either way.
+    if gpu_mode == "cuda" and spec.get("cuda_index"):
         py = venv_python(dest)
         # Pin to the exact version `uv sync` just resolved (from the default
         # CPU-only index) — `--no-deps` below means uv won't re-check
@@ -154,7 +202,7 @@ def ensure_env(env_name: str, gpu_mode: str, log: LogFn = print, force: bool = F
             raise SetupError(f"CUDA torch reinstall failed for {env_name} (exit {proc.returncode})")
 
 
-def setup_envs(gpu: str = "auto", force: bool = False, log: LogFn = print) -> None:
+def setup_envs(gpu: str = "auto", log: LogFn = print) -> None:
     gpu_mode = gpu if gpu in ("cuda", "cpu") else default_gpu_mode()
     if gpu_mode == "cuda":
         detail = "NVIDIA GPU detected" if gpu == "auto" else "forced with --cuda"
@@ -164,7 +212,7 @@ def setup_envs(gpu: str = "auto", force: bool = False, log: LogFn = print) -> No
         log(f"Torch build: CPU ({detail}) — works on any machine, but much slower.")
 
     for env_name in ENV_SPECS:
-        ensure_env(env_name, gpu_mode, log=log, force=force)
+        ensure_env(env_name, gpu_mode, log=log)
 
     log("Setup complete.")
 
@@ -233,12 +281,11 @@ def main(argv: list[str] | None = None) -> int:
     gpu_group = ap.add_mutually_exclusive_group()
     gpu_group.add_argument("--cpu", action="store_true", help="Force CPU torch builds (default: auto-detect).")
     gpu_group.add_argument("--cuda", action="store_true", help="Force CUDA torch builds (default: auto-detect).")
-    ap.add_argument("--force", action="store_true", help="Rewrite pyproject.toml even if it already exists.")
     args = ap.parse_args(argv)
 
     gpu = "cpu" if args.cpu else "cuda" if args.cuda else "auto"
     try:
-        setup_envs(gpu=gpu, force=args.force)
+        setup_envs(gpu=gpu)
     except SetupError as exc:
         print(f"[setup] {exc}", file=sys.stderr)
         return 1

@@ -10,10 +10,10 @@ import sys
 from importlib.metadata import version
 from pathlib import Path
 
-from . import ace_step
+from . import ace_step, gemma_writer, syrex, zimage
 from .config import DemucsConfig, LyricsConfig, PipelineConfig, ToolFolders, WhisperXConfig
 from .pipeline_core import run_pipeline
-from .tools_install import ROOT, envs_provisioned, gpu_status, main as setup_main, setup_envs
+from .tools_install import ROOT, doctor, envs_provisioned, gpu_status, main as setup_main, setup_envs
 
 
 def _add_run_args(ap: argparse.ArgumentParser) -> None:
@@ -25,6 +25,9 @@ def _add_run_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--whisperx_env", default=str(ROOT / "whisperx-uv"), help="WhisperX uv environment directory")
 
     ap.add_argument("--demucs_model", default="htdemucs", help="Demucs model name")
+    ap.add_argument("--demucs_shifts", type=int, default=0,
+                    help="Random-shift ensembling passes for Demucs (0=fast/default, 2+=better vocal "
+                         "isolation on a heavily blended mix, proportionally slower)")
     ap.add_argument("--whisper_model", default="large-v3", help="WhisperX model name")
     ap.add_argument("--language", default="", help="Language code, e.g. en (empty=auto)")
 
@@ -36,6 +39,10 @@ def _add_run_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--no_capcut_apostrophe_fix", action="store_true", help="Disable CapCut apostrophe fix")
     ap.add_argument("--segment_mode", action="store_true",
                     help="One subtitle cue per verse/chorus block instead of per line")
+    ap.add_argument("--caption_source", default="auto", choices=["auto", "transcript", "lyrics"],
+                    help="auto: lyrics if given else transcript (default). transcript: always use the "
+                         "WhisperX transcript, even if lyrics were given — more reliable when a song "
+                         "skips/repeats lines vs the literal lyrics text. lyrics: force lyrics-alignment.")
     ap.add_argument("--skip_demucs", action="store_true",
                     help="Skip vocal separation — use raw audio directly")
     ap.add_argument("--vad", default="silero", choices=["silero", "pyannote"],
@@ -49,7 +56,7 @@ def _run(args: argparse.Namespace) -> int:
             demucs_env_dir=Path(args.demucs_env).resolve(),
             whisperx_env_dir=Path(args.whisperx_env).resolve(),
         ),
-        demucs=DemucsConfig(model=args.demucs_model),
+        demucs=DemucsConfig(model=args.demucs_model, shifts=args.demucs_shifts),
         whisperx=WhisperXConfig(
             model=args.whisper_model,
             language=args.language.strip() or None,
@@ -64,6 +71,7 @@ def _run(args: argparse.Namespace) -> int:
             max_lines_per_cue=max(1, min(3, args.max_lines)),
             capcut_safe_apostrophes=(not args.no_capcut_apostrophe_fix),
             segment_mode=args.segment_mode,
+            caption_source=args.caption_source,
         ),
     )
 
@@ -96,21 +104,42 @@ def _app(args: argparse.Namespace) -> int:
     return 0
 
 
+# Tools with no extra CLI flags of their own — each `install()` is the
+# one-call shape `ensure_env`/`ace_step.install` already provide.
+_SIMPLE_INSTALLERS = {"z-image": zimage.install, "gemma": gemma_writer.install, "syrex": syrex.install}
+
+
 def _install_tool(args: argparse.Namespace) -> int:
-    if args.name != "ace-step":
-        print(f"[install-tool] unknown tool '{args.name}'. Known: ace-step", file=sys.stderr)
-        return 1
-    try:
-        ace_step.install(update=args.update)
-    except ace_step.AceStepError as exc:
-        print(f"[install-tool] {exc}", file=sys.stderr)
-        return 1
+    if args.name == "ace-step":
+        try:
+            ace_step.install(update=args.update)
+        except ace_step.AceStepError as exc:
+            print(f"[install-tool] {exc}", file=sys.stderr)
+            return 1
+        return 0
+    installer = _SIMPLE_INSTALLERS.get(args.name)
+    if installer is not None:
+        try:
+            installer(log=print)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[install-tool] {exc}", file=sys.stderr)
+            return 1
+        return 0
+    known = ", ".join(["ace-step", *_SIMPLE_INSTALLERS])
+    print(f"[install-tool] unknown tool '{args.name}'. Known: {known}", file=sys.stderr)
+    return 1
+
+
+def _doctor(args: argparse.Namespace) -> int:
+    import json
+
+    print(json.dumps(doctor()))
     return 0
 
 
 def _ace_step(args: argparse.Namespace) -> int:
     try:
-        return ace_step.launch_blocking(args.entry, args.extra_args)
+        return ace_step.launch_blocking()
     except ace_step.AceStepError as exc:
         print(f"[ace-step] {exc}", file=sys.stderr)
         return 1
@@ -148,19 +177,19 @@ def main() -> int:
 
     sub.add_parser("setup", help="Provision the isolated demucs-uv / whisperx-uv environments")
 
+    doctor_ap = sub.add_parser("doctor", help="Print prerequisite/env status as JSON (for the Electron Setup view)")
+    doctor_ap.set_defaults(func=_doctor)
+
     install_tool_ap = sub.add_parser(
         "install-tool", help="Clone + `uv sync` an optional external tool into its own isolated env"
     )
-    install_tool_ap.add_argument("name", help="Tool to install (currently: ace-step)")
+    install_tool_ap.add_argument("name", help="Tool to install (currently: ace-step, z-image, gemma)")
     install_tool_ap.add_argument("--update", action="store_true", help="Pull latest changes if already cloned")
     install_tool_ap.set_defaults(func=_install_tool)
 
     ace_step_ap = sub.add_parser(
-        "ace-step", help="Launch ACE-Step-1.5 (music generation) from its isolated env"
+        "ace-step", help="Launch the ACE-Step (acestep.cpp) server + WebUI"
     )
-    ace_step_ap.add_argument("entry", choices=list(ace_step.ENTRY_POINTS), default="app", nargs="?",
-                             help="app=Gradio UI, api=REST server, download=fetch checkpoints (default: app)")
-    ace_step_ap.add_argument("extra_args", nargs=argparse.REMAINDER, help="Extra args passed through to ACE-Step")
     ace_step_ap.set_defaults(func=_ace_step)
 
     args = ap.parse_args()

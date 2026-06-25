@@ -16,9 +16,9 @@ from .. import jobs
 from ..notify import notify
 from ..polling import start_poll
 from ..state import JOBS_DIR, is_job_running
+from ...assets_lib import AUDIO_EXTENSIONS as _AUDIO_EXTENSIONS
 
 _WHISPER_MODELS = ["tiny", "base", "small", "medium", "large-v2", "large-v3", "large-v3-turbo"]
-_AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus"}
 _MAX_LYRICS_CHARS = 50_000
 
 _DOWNLOADS = [

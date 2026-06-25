@@ -152,37 +152,60 @@ def build_line_cues(
                 return lyric_to_time[k]
         return None
 
-    cues: list[Cue] = []
+    # Per line: its own real (start, end) from aligned words, or None if no
+    # word in that line aligned to anything WhisperX transcribed.
+    raw: list[tuple[float, float] | None] = []
+    texts: list[str] = []
+    ranges: list[tuple[int, int]] = []
     for line_i, (a, b) in enumerate(line_word_ranges):
         text = lyric_lines_text[line_i].strip()
+        texts.append(text)
+        ranges.append((a, b))
         if not text:
+            raw.append(None)
             continue
-
         times = [lyric_to_time[i] for i in range(a, b) if i in lyric_to_time]
-        if times:
-            st = min(t[0] for t in times)
-            en = max(t[1] for t in times)
-        else:
-            prev_t = nearest_prev_time(a)
-            next_t = nearest_next_time(b - 1)
-            if prev_t and next_t:
-                st = prev_t[1]
-                en = next_t[0]
-                if (en - st) > max_gap_seconds:
-                    en = st + max_gap_seconds
-            elif prev_t:
-                st = prev_t[1]
-                en = st + (min_line_ms / 1000.0)
-            elif next_t:
-                en = next_t[0]
-                st = max(0.0, en - (min_line_ms / 1000.0))
-            else:
-                st = 0.0
-                en = min_line_ms / 1000.0
+        raw.append((min(t[0] for t in times), max(t[1] for t in times)) if times else None)
 
-        st, en = _pad(st, en, pad_ms)
+    # Fill runs of consecutive unaligned (non-empty) lines by spreading them
+    # evenly across the gap to the nearest aligned word on either side —
+    # the line-level equivalent of karaoke.py's _fill_line_words. Without
+    # this, every line in such a run independently grabbed the *same* whole
+    # gap window, and the monotonic-overlap fixup below then force-stacked
+    # them back-to-back at the minimum duration — several lyric lines all
+    # landing within the same second of video, which is exactly what a poor
+    # ASR match against bad/garbled vocals produces.
+    filled: list[tuple[float, float] | None] = list(raw)
+    n = len(filled)
+    i = 0
+    while i < n:
+        if filled[i] is not None or not texts[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and filled[j] is None and texts[j]:
+            j += 1
+        gap_lines = j - i
+        a0 = ranges[i][0]
+        b0 = ranges[j - 1][1]
+        prev_t = nearest_prev_time(a0)
+        next_t = nearest_next_time(b0 - 1)
+        prev_end = prev_t[1] if prev_t else (filled[i - 1][1] if i > 0 and filled[i - 1] else 0.0)
+        next_start = next_t[0] if next_t else prev_end + max_gap_seconds * gap_lines
+        next_start = min(next_start, prev_end + max_gap_seconds * gap_lines)
+        seg_dur = max((min_line_ms / 1000.0) * gap_lines, next_start - prev_end)
+        step = seg_dur / gap_lines
+        for k in range(gap_lines):
+            filled[i + k] = (prev_end + k * step, prev_end + (k + 1) * step)
+        i = j
+
+    cues: list[Cue] = []
+    for line_i, t in enumerate(filled):
+        if not texts[line_i] or t is None:
+            continue
+        st, en = _pad(t[0], t[1], pad_ms)
         st, en = _clamp_duration(st, en, min_line_ms)
-        cues.append(Cue(st, en, text))
+        cues.append(Cue(st, en, texts[line_i]))
 
     fixed: list[Cue] = []
     last_end = 0.0

@@ -1,100 +1,41 @@
-"""Per-word lyric timing + karaoke-style ASS generation, for the lyric-video feature.
+"""Lyric-video ASS generation (plain centered captions, no per-word
+karaoke sweep) + retiming for the nightcore speed-up.
 
-Builds on the same word alignment data `pipeline_core.run_pipeline` already
-produces (`align.extract_whisper_words` + `align.align_words`) — no changes to
-the alignment step itself, just a finer-grained view of its output than
-`cues.build_line_cues` exposes.
+`cues_to_karaoke_ass` takes whatever `Cue` list the caller already built
+(via `cues.build_line_cues` for the lyrics-aligned path, or built directly
+from WhisperX segments for the transcript-only path — see
+`pipeline_core.run_pipeline`) — it doesn't need its own word-level timing
+since there's no per-word highlight to time anymore, just each line's own
+start/end.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from pathlib import Path
 from typing import Iterable
 
-from .align import WWord
 from .cues import Cue, capcut_safe_text, sec_to_ass_ts
 
-
-@dataclass(frozen=True)
-class WordTiming:
-    word: str
-    start: float
-    end: float
+_ASS_TS_RE = re.compile(r"^(\d+):(\d{2}):(\d{2})\.(\d{2})$")
+_DIALOGUE_RE = re.compile(r"^(Dialogue:\s*\d+,)([^,]+),([^,]+),(.*)$")
+_KF_RE = re.compile(r"\\kf(\d+)")
 
 
-def _fill_line_words(
-    words_in_line: list[tuple[int, str]],
-    lyric_to_time: dict[int, tuple[float, float]],
-    cue_start: float,
-    cue_end: float,
-) -> list[WordTiming]:
-    """Time every word in a line, using aligned words as anchors and spreading
-    any unaligned words evenly across the gap to the next anchor (or to the
-    line's end, if there is no next anchor)."""
-    timings: list[WordTiming] = []
-    i = 0
-    cursor = cue_start
-    n = len(words_in_line)
-    while i < n:
-        idx, word = words_in_line[i]
-        if idx in lyric_to_time:
-            st, en = lyric_to_time[idx]
-            st = max(st, cursor)
-            en = max(en, st + 0.05)
-            timings.append(WordTiming(word, st, en))
-            cursor = en
-            i += 1
-            continue
-
-        j = i
-        while j < n and words_in_line[j][0] not in lyric_to_time:
-            j += 1
-        next_start = lyric_to_time[words_in_line[j][0]][0] if j < n else cue_end
-
-        gap_words = j - i
-        seg_dur = max(0.05 * gap_words, next_start - cursor)
-        step = seg_dur / gap_words
-        for k in range(gap_words):
-            st = cursor + k * step
-            en = cursor + (k + 1) * step
-            timings.append(WordTiming(words_in_line[i + k][1], st, en))
-        cursor += seg_dur
-        i = j
-    return timings
+def _ass_ts_to_sec(ts: str) -> float:
+    m = _ASS_TS_RE.match(ts.strip())
+    if not m:
+        raise ValueError(f"Not a valid ASS timestamp: {ts!r}")
+    hh, mm, ss, cs = (int(g) for g in m.groups())
+    return hh * 3600 + mm * 60 + ss + cs / 100
 
 
-def build_word_cues(
-    lyrics_words: list[str],
-    line_word_ranges: list[tuple[int, int]],
-    line_cues: list[Cue],
-    whisper_words: list[WWord],
-    pairs: list[tuple[int | None, int | None]],
-) -> list[list[WordTiming]]:
-    """Returns, per line cue, the list of (word, start, end) actually displayed."""
-    lyric_to_time: dict[int, tuple[float, float]] = {}
-    for li, wi in pairs:
-        if li is None or wi is None:
-            continue
-        lyric_to_time[li] = (whisper_words[wi].start, whisper_words[wi].end)
-
-    result: list[list[WordTiming]] = []
-    for line_i, (a, b) in enumerate(line_word_ranges):
-        if line_i >= len(line_cues):
-            result.append([])
-            continue
-        cue = line_cues[line_i]
-        words_in_line = [(i, lyrics_words[i]) for i in range(a, b)]
-        if not words_in_line:
-            result.append([])
-            continue
-        result.append(_fill_line_words(words_in_line, lyric_to_time, cue.start, cue.end))
-    return result
-
-
-# Karaoke palette: PrimaryColour = not-yet-sung, SecondaryColour = highlight
-# sweep colour while a word is being sung. ASS colours are &HAABBGGRR.
+# Plain (non-karaoke) palette: one static colour, no per-word sweep.
+# Centered (Alignment=5, mid-center) in the bundled Edo font (font/Edo/
+# edo.ttf, registered via ffmpeg's `ass` filter `fontsdir` — see video.py —
+# not a system font install).
 _KARAOKE_HEADER = [
     "[Script Info]",
-    "Title: AiSongTool Karaoke Export",
+    "Title: AiSongTool Lyrics Export",
     "ScriptType: v4.00+",
     "WrapStyle: 0",
     "ScaledBorderAndShadow: yes",
@@ -104,28 +45,51 @@ _KARAOKE_HEADER = [
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    "Style: Karaoke,Arial Black,72,&H00FFFFFF,&H0000D7FF,&H00101010,&H80000000,1,0,0,0,100,100,1,0,1,3,1,2,80,80,90,1",
+    "Style: Karaoke,Edo,96,&H00FFFFFF,&H00FFFFFF,&H00101010,&H80000000,1,0,0,0,100,100,1,0,1,3,1,5,80,80,90,1",
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
 ]
 
 
-def cues_to_karaoke_ass(line_cues: Iterable[Cue], word_cues: list[list[WordTiming]]) -> str:
-    """One Dialogue event per line, with `\\kf` tags driving the per-word sweep.
+def cues_to_karaoke_ass(line_cues: Iterable[Cue]) -> str:
+    """One Dialogue event per line, plain static text — no `\\kf` per-word
+    sweep, just each cue's own start/end and text as-is.
 
-    Line-mode cues only — segment-mode cues (multi-line `\\n`-joined text) don't
-    have a clean per-display-line word mapping, so the video feature requires
+    Line-mode cues only — segment-mode cues (multi-line `\\n`-joined text)
+    don't map to one display line each, so the video feature requires
     `segment_mode=False` lyrics.
     """
     out = _KARAOKE_HEADER[:]
-    for cue, words in zip(line_cues, word_cues):
-        if not words:
+    for cue in line_cues:
+        text = cue.text.strip()
+        if not text:
             continue
-        parts = []
-        for w in words:
-            dur_cs = max(1, round((w.end - w.start) * 100))
-            parts.append(f"{{\\kf{dur_cs}}}{capcut_safe_text(w.word)} ")
-        text = "".join(parts).rstrip()
-        out.append(f"Dialogue: 0,{sec_to_ass_ts(cue.start)},{sec_to_ass_ts(cue.end)},Karaoke,,0,0,0,,{text}")
+        out.append(
+            f"Dialogue: 0,{sec_to_ass_ts(cue.start)},{sec_to_ass_ts(cue.end)},Karaoke,,0,0,0,,{capcut_safe_text(text)}"
+        )
     return "\n".join(out).rstrip() + "\n"
+
+
+def retime_karaoke_ass(in_path: Path, out_path: Path, speed: float) -> Path:
+    """Shrink every timestamp (and any `\\kf` sweep duration, if present) in a
+    karaoke.ass by `speed`, so the lyrics stay in sync after the audio itself
+    has been sped up by the same factor (see nightcore.py's asetrate trick).
+    An exact linear transform (dividing every timestamp by the same constant
+    factor), not an approximation — pure text transform, doesn't touch the
+    original generation/transcription path."""
+    out_lines = []
+    for line in in_path.read_text(encoding="utf-8").splitlines():
+        m = _DIALOGUE_RE.match(line)
+        if not m:
+            out_lines.append(line)
+            continue
+        prefix, start_ts, end_ts, rest = m.groups()
+        new_start = sec_to_ass_ts(_ass_ts_to_sec(start_ts) / speed)
+        new_end = sec_to_ass_ts(_ass_ts_to_sec(end_ts) / speed)
+        new_rest = _KF_RE.sub(lambda km: f"\\kf{max(1, round(int(km.group(1)) / speed))}", rest)
+        out_lines.append(f"{prefix}{new_start},{new_end},{new_rest}")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text("\n".join(out_lines).rstrip() + "\n", encoding="utf-8")
+    return out_path

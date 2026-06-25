@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 
-def separate(song_path: Path, out_dir: Path, model_name: str = "htdemucs") -> None:
+def separate(song_path: Path, out_dir: Path, model_name: str = "htdemucs", shifts: int = 0) -> None:
     import torch
     import soundfile as sf
     from demucs.pretrained import get_model
@@ -22,7 +22,19 @@ def separate(song_path: Path, out_dir: Path, model_name: str = "htdemucs") -> No
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"[demucs] device={device}  model={model_name}")
 
-    model = get_model(model_name)
+    try:
+        model = get_model(model_name)
+    except Exception as exc:
+        # A non-default model (e.g. htdemucs_ft's 4-checkpoint ensemble)
+        # that hasn't been downloaded yet needs network access to fetch —
+        # if that fails (offline, blocked CDN, etc.), fall back to
+        # "htdemucs" (the one model this app ships expecting to already be
+        # cached) instead of failing the whole pipeline outright.
+        if model_name == "htdemucs":
+            raise
+        print(f"[demucs] could not load '{model_name}' ({exc}) — falling back to htdemucs.")
+        model_name = "htdemucs"
+        model = get_model(model_name)
     model.eval()
     if device == "cuda":
         model = model.cuda()
@@ -41,9 +53,9 @@ def separate(song_path: Path, out_dir: Path, model_name: str = "htdemucs") -> No
     std  = ref.std()
     wav  = (wav - mean) / (std + 1e-8)
 
-    print("[demucs] separating …")
+    print(f"[demucs] separating … (shifts={shifts})")
     with torch.no_grad():
-        out = apply_model(model, wav[None].to(device), progress=True)
+        out = apply_model(model, wav[None].to(device), shifts=shifts, progress=True)
     # out: Tensor(batch=1, num_sources, channels, samples)
     out = out[0]  # (num_sources, channels, samples)
 
@@ -72,6 +84,7 @@ def main() -> int:
     ap.add_argument("song", type=Path)
     ap.add_argument("out",  type=Path)
     ap.add_argument("--model", default="htdemucs")
+    ap.add_argument("--shifts", type=int, default=0)
     args = ap.parse_args()
 
     try:
@@ -79,6 +92,7 @@ def main() -> int:
             args.song.expanduser().resolve(),
             args.out.expanduser().resolve(),
             model_name=args.model,
+            shifts=args.shifts,
         )
         return 0
     except Exception as exc:

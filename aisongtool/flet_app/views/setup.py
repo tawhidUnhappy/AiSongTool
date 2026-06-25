@@ -1,6 +1,7 @@
 """Setup view — GPU/uv/ffmpeg doctor status, and buttons to (re)provision the
-isolated demucs-uv / whisperx-uv environments and the optional ACE-Step-1.5
-music generation tool."""
+isolated demucs-uv / whisperx-uv environments and the optional tools
+(ACE-Step-1.5 music generation, Z-Image-Turbo image generation, Gemma 4
+prompt writing)."""
 from __future__ import annotations
 
 import sys
@@ -12,6 +13,7 @@ from ..notify import notify
 from ..polling import start_poll
 from ..state import is_job_running
 from ...tools_install import doctor
+from ._tool_card import tool_install_card
 
 
 def _status_row(label: str, ok: bool, detail: str = "") -> ft.Row:
@@ -30,10 +32,51 @@ def build(page: ft.Page, active_token: dict) -> ft.Control:
     run_button = ft.FilledButton("Run setup", icon=ft.Icons.BUILD)
     refresh_button = ft.OutlinedButton("Refresh status", icon=ft.Icons.REFRESH)
 
-    install_ace_button = ft.FilledButton("Install / update ACE-Step", icon=ft.Icons.DOWNLOAD)
-    launch_ace_button = ft.FilledTonalButton("Open ACE-Step UI (Gradio)", icon=ft.Icons.AUTO_AWESOME, disabled=True)
-    ace_status_label = ft.Text("", size=12, color=ft.Colors.OUTLINE)
+    ace_card = tool_install_card(
+        page,
+        title="Optional: ACE-Step (music generation)",
+        description="Prebuilt binaries + GGUF-quantized models (acestep.cpp) downloaded straight "
+                    "into acestep-cpp/ — no git clone, no isolated Python/CUDA env of its own "
+                    "(~4.2GB total, vs ~11GB for the original diffusers-based ACE-Step-1.5).",
+        install_label="Install / update ACE-Step",
+        install_cmd=["install-tool", "ace-step"],
+        installing_notice="Downloading ACE-Step (acestep.cpp) binaries + models — see the Terminal tab. "
+                           "This downloads a few GB and can take a while.",
+        extra_button=ft.FilledTonalButton("Open ACE-Step UI", icon=ft.Icons.AUTO_AWESOME, disabled=True),
+    )
 
+    def _launch_ace_step(e: ft.ControlEvent) -> None:
+        if is_job_running():
+            notify(page, "A job is already running.", warning=True)
+            return
+        jobs.spawn_cli([sys.executable, "-m", "aisongtool.cli", "ace-step"])
+        notify(page, "Starting ACE-Step's server — open http://127.0.0.1:8080 in your browser.")
+
+    ace_card.extra_button.on_click = _launch_ace_step
+
+    # Simple "just an isolated env, no extra launch button" tools — built in a
+    # loop since they all share the exact same card shape.
+    _SIMPLE_TOOLS = [
+        ("zimage-uv", "z-image", "Optional: Z-Image-Turbo (image generation)",
+         "An isolated `uv` env (like demucs-uv/whisperx-uv) — lets the Create flow generate a "
+         "background image straight from the song's prompt instead of needing one uploaded by "
+         "hand. Runs comfortably in 8GB VRAM.",
+         "Install Z-Image Turbo",
+         "Installing Z-Image-Turbo's isolated env — see the Terminal tab. "
+         "Model weights (a few GB) download on first real use."),
+        ("gemma-uv", "gemma", "Optional: Gemma 4 (prompt writing)",
+         "An isolated `uv` env — lets the Create flow turn one short description into a song "
+         "style caption, full lyrics, and an image prompt. 4-bit quantized, a few GB VRAM.",
+         "Install Gemma 4",
+         "Installing Gemma 4's isolated env — see the Terminal tab. "
+         "Model weights (a few GB) download on first real use."),
+    ]
+    simple_cards: dict[str, object] = {}
+    for env_name, tool_name, title, description, install_label, installing_notice in _SIMPLE_TOOLS:
+        simple_cards[env_name] = tool_install_card(
+            page, title=title, description=description, install_label=install_label,
+            install_cmd=["install-tool", tool_name], installing_notice=installing_notice,
+        )
     pending = {"finished": False}
 
     def _refresh(e: ft.ControlEvent | None = None) -> None:
@@ -59,14 +102,19 @@ def build(page: ft.Page, active_token: dict) -> ft.Control:
 
         ace = report["ace_step"]
         if ace["synced"]:
-            ace_status_label.value = f"Installed at {ace['dir']}"
-            launch_ace_button.disabled = False
+            ace_card.set_status(f"Installed at {ace['dir']}")
+            ace_card.extra_button.disabled = False
         elif ace["cloned"]:
-            ace_status_label.value = "Cloned, but `uv sync` hasn't finished — click Install / update."
-            launch_ace_button.disabled = True
+            ace_card.set_status("Cloned, but `uv sync` hasn't finished — click Install / update.")
+            ace_card.extra_button.disabled = True
         else:
-            ace_status_label.value = "Not installed yet."
-            launch_ace_button.disabled = True
+            ace_card.set_status("Not installed yet.")
+            ace_card.extra_button.disabled = True
+
+        for env_name, card in simple_cards.items():
+            info = report["envs"].get(env_name, {})
+            ready = info.get("provisioned") and info.get("venv_python")
+            card.set_status("Installed." if ready else "Not installed yet.")
 
         page.update()
 
@@ -83,34 +131,15 @@ def build(page: ft.Page, active_token: dict) -> ft.Control:
 
     run_button.on_click = _run_setup
 
-    def _install_ace_step(e: ft.ControlEvent) -> None:
-        if is_job_running():
-            notify(page, "A job is already running.", warning=True)
-            return
-        cmd = [sys.executable, "-m", "aisongtool.cli", "install-tool", "ace-step"]
-        pending["finished"] = False
-        jobs.spawn_cli(cmd, on_exit=lambda code: pending.__setitem__("finished", True))
-        notify(page, "Cloning + installing ACE-Step-1.5 — see the Terminal tab. "
-                     "This downloads several GB and can take a while.")
-
-    install_ace_button.on_click = _install_ace_step
-
-    def _launch_ace_step(e: ft.ControlEvent) -> None:
-        if is_job_running():
-            notify(page, "A job is already running.", warning=True)
-            return
-        cmd = [sys.executable, "-m", "aisongtool.cli", "ace-step", "app"]
-        jobs.spawn_cli(cmd)
-        notify(page, "Starting ACE-Step's Gradio UI — see the Terminal tab for the URL "
-                     "(usually http://127.0.0.1:7860).")
-
-    launch_ace_button.on_click = _launch_ace_step
-
     def _poll() -> None:
         running = is_job_running()
         run_button.disabled = running
-        install_ace_button.disabled = running
-        if pending["finished"]:
+        ace_card.install_button.disabled = running
+        any_pending = pending["finished"] or ace_card.consume_pending()
+        for card in simple_cards.values():
+            card.install_button.disabled = running
+            any_pending = card.consume_pending() or any_pending
+        if any_pending:
             pending["finished"] = False
             _refresh()
         else:
@@ -125,18 +154,8 @@ def build(page: ft.Page, active_token: dict) -> ft.Control:
                 ft.Column([ft.Row([run_button, refresh_button], spacing=8), status_col], spacing=12),
                 padding=16,
             )),
-            ft.Card(content=ft.Container(
-                ft.Column([
-                    ft.Text("Optional: ACE-Step-1.5 (music generation)", weight=ft.FontWeight.BOLD),
-                    ft.Text("Cloned + `uv sync`'d into its own isolated env — its large, fast-moving "
-                            "dependency set (vLLM, diffusers, its own CUDA torch build) never touches "
-                            "the main app or the demucs-uv/whisperx-uv envs.",
-                            size=12, color=ft.Colors.OUTLINE),
-                    ft.Row([install_ace_button, launch_ace_button], spacing=8),
-                    ace_status_label,
-                ], spacing=12),
-                padding=16,
-            )),
+            ace_card.card,
+            *[card.card for card in simple_cards.values()],
         ],
         spacing=16,
         expand=True,

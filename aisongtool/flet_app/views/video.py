@@ -14,32 +14,14 @@ from .. import jobs
 from ..notify import notify
 from ..polling import start_poll
 from ..state import JOBS_DIR, is_job_running
+from ...assets_lib import IMAGE_EXTENSIONS as _IMAGE_EXTENSIONS
+from ...assets_lib import find_audio_in as _find_job_audio
+from ...assets_lib import list_karaoke_ready_jobs
 from ...video import build_render_cmd
-
-_AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus"}
-_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
-
-
-def _find_job_audio(job_dir: Path) -> Path | None:
-    inp = job_dir / "input"
-    if not inp.exists():
-        return None
-    for p in inp.iterdir():
-        if p.is_file() and p.suffix.lower() in _AUDIO_EXTENSIONS:
-            return p
-    return None
 
 
 def _list_candidate_jobs() -> list[Path]:
-    if not JOBS_DIR.exists():
-        return []
-    out = []
-    for d in sorted(JOBS_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
-        if d.name == "_uploads" or not d.is_dir():
-            continue
-        if (d / "out" / "karaoke.ass").exists() and _find_job_audio(d):
-            out.append(d)
-    return out
+    return list_karaoke_ready_jobs(JOBS_DIR)
 
 
 def build(page: ft.Page, active_token: dict) -> ft.Control:

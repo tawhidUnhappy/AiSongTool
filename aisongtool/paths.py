@@ -47,3 +47,10 @@ def bundle_dir() -> Path:
 
 def workers_dir() -> Path:
     return bundle_dir() / "workers"
+
+
+def fonts_dir() -> Path:
+    """Bundled fonts (e.g. font/Edo/edo.ttf) for the lyric video's subtitle
+    track — passed to ffmpeg's `ass` filter as `fontsdir` so libass can find
+    them without a system-wide font install."""
+    return bundle_dir() / "font"
