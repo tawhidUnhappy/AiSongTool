@@ -50,6 +50,23 @@ folder, or uninstalling (Windows NSIS installer and Linux `.deb` both clean it u
 automatically; macOS ships a small "Uninstall AiSongTool" helper in the DMG), removes
 everything this app has ever written — no leftover caches, no orphaned models.
 
+### Updating
+
+Installing a newer version over an existing install upgrades in place and never touches
+your data folder — every model you've already downloaded stays put, nothing re-downloads.
+This works the same way on every platform, since the data folder always lives outside the
+installed app's own files. A few notes depending on how you installed:
+
+- **Windows installer** (`*-setup.exe`): running the *same* version's installer again
+  detects this and asks before reinstalling, instead of silently doing it.
+- **Linux `.deb`**: `sudo apt install ./AiSongTool-<version>.deb` already reports "is
+  already the newest version" for a same-version reinstall, the normal `apt` behavior.
+- **Portable builds** (`*-portable.exe`, `.AppImage`, `.zip`): there's no installer at
+  all — "updating" just means replacing the file. Replace it **in the same folder** to
+  keep using the same data folder; running a new download from a *different* folder
+  starts a fresh, separate one (Windows portable's data folder is wherever the `.exe`
+  itself sits).
+
 ---
 
 ## What it does
