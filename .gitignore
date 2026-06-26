@@ -2,6 +2,9 @@
 jobs/
 output/
 desktop-settings.json
+# HF/torch/uv caches — see desktop/src/main/paths.ts's cacheEnv(), centralized
+# here (repo root, in dev mode) instead of ~/.cache/%LOCALAPPDATA%/etc.
+/caches/
 
 # Python environments
 .venv/
