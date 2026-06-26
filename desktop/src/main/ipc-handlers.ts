@@ -85,12 +85,16 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('launch-ace-step', (event) => {
-    const cmd = aceStep.buildServerCmd()
+    // `uv run acestep` — the actual Gradio demo UI (port 7860). Previously
+    // this launched `acestep-api` (the headless REST server on 8001 that
+    // create-pipeline.ts's ace-step-api.ts talks to) and opened its bare
+    // root URL, which has no page and just 404'd.
+    const cmd = aceStep.buildGuiCmd()
     spawnDetached(cmd, aceStep.destDir(), (chunk) => send(event, chunk), undefined, 'ace-step')
-    // Give the API server a moment to come up before opening the browser —
-    // model loading on first request can take a while, but this just opens
-    // the (already-listening) local URL, not waiting on a generation.
-    setTimeout(() => shell.openExternal('http://127.0.0.1:8001'), 2000)
+    // Give the Gradio server a moment to come up before opening the browser
+    // — model/UI startup can take a while, but this just opens the
+    // (already-listening) local URL, not waiting on a generation.
+    setTimeout(() => shell.openExternal('http://127.0.0.1:7860'), 2000)
   })
 
   ipcMain.handle('stop-gui', (_event, name: string) => stopNamedGui(name))
