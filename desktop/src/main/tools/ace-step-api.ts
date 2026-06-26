@@ -178,7 +178,7 @@ async function releaseTask(base: string, body: AceRequest, log: LogFn): Promise<
   return taskId
 }
 
-interface ParsedResult {
+interface ParsedResultItem {
   file?: string
   metas?: Record<string, unknown>
 }
@@ -190,7 +190,7 @@ async function pollResult(
   pollIntervalMs: number,
   timeoutMs: number,
   onProgress: LogFn | undefined
-): Promise<ParsedResult> {
+): Promise<ParsedResultItem> {
   const deadline = Date.now() + timeoutMs
   let lastStatus: number | null = null
   while (Date.now() < deadline) {
@@ -223,7 +223,12 @@ async function pollResult(
       onProgress?.(`generating: ${label}`)
     }
     if (item.status === 1) {
-      return item.result ? (JSON.parse(item.result) as ParsedResult) : {}
+      // `result` decodes to an array (one entry per `batch_size`, even when
+      // batch_size is 1 — confirmed against a real server response, which
+      // came back as `[{file, metas, ...}]`, not a flat object).
+      if (!item.result) return {}
+      const parsed = JSON.parse(item.result) as ParsedResultItem[]
+      return parsed[0] ?? {}
     }
     if (item.status === 2) {
       throw new AceStepApiError(`task ${taskId} failed: ${item.result ?? '(no detail)'}`)

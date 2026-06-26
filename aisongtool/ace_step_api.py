@@ -164,8 +164,15 @@ def _poll_result(
             if on_progress:
                 on_progress(f"generating: {label}")
         if status == 1:
+            # `result` decodes to an array (one entry per `batch_size`, even
+            # when batch_size is 1 — confirmed against a real server
+            # response: `[{"file": ..., "metas": ..., ...}]`, not a flat
+            # object), mirroring the same fix in ace-step-api.ts.
             result = item.get("result")
-            return _json.loads(result) if result else {}
+            if not result:
+                return {}
+            parsed = _json.loads(result)
+            return parsed[0] if parsed else {}
         if status == 2:
             raise AceStepApiError(f"task {task_id} failed: {item.get('result') or '(no detail)'}")
     raise AceStepApiError(f"task {task_id} timed out after {timeout:.0f}s.")
