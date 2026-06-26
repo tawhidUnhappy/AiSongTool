@@ -50,6 +50,26 @@ const SOURCES = {
 
 const FFMPEG_SOURCE_VERSION = '7.1.1'
 
+// Both ffmpeg.org and (less often) GitHub's release CDN drop the connection
+// mid-transfer often enough in CI that a bare fetch+pipeline isn't reliable
+// — retry the whole download a few times with backoff instead of failing
+// the build on what's usually just a flaky transfer.
+async function downloadWithRetry(url, destPath, attempts = 4) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const resp = await fetch(url)
+      if (!resp.ok) throw new Error(`Download failed: ${resp.status}`)
+      await pipeline(resp.body, createWriteStream(destPath))
+      return
+    } catch (err) {
+      if (attempt === attempts) throw err
+      const delayMs = attempt * 5000
+      console.warn(`Download of ${url} failed (attempt ${attempt}/${attempts}): ${err.message}. Retrying in ${delayMs / 1000}s...`)
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
+    }
+  }
+}
+
 async function buildMacFromSource() {
   mkdirSync(OUT_DIR, { recursive: true })
   const buildDir = path.join(OUT_DIR, '_build')
@@ -67,9 +87,7 @@ async function buildMacFromSource() {
   const tarPath = path.join(buildDir, 'ffmpeg.tar.xz')
   const srcUrl = `https://ffmpeg.org/releases/ffmpeg-${FFMPEG_SOURCE_VERSION}.tar.xz`
   console.log(`Downloading ffmpeg ${FFMPEG_SOURCE_VERSION} source from ${srcUrl} ...`)
-  const resp = await fetch(srcUrl)
-  if (!resp.ok) throw new Error(`Download failed: ${resp.status}`)
-  await pipeline(resp.body, createWriteStream(tarPath))
+  await downloadWithRetry(srcUrl, tarPath)
 
   console.log('Extracting source...')
   execFileSync('tar', ['-xJf', tarPath, '-C', buildDir])
@@ -133,9 +151,7 @@ async function main() {
   const archivePath = path.join(OUT_DIR, `_download.${source.archive === 'zip' ? 'zip' : 'tar.xz'}`)
 
   console.log(`Downloading ${source.url} ...`)
-  const resp = await fetch(source.url)
-  if (!resp.ok) throw new Error(`Download failed: ${resp.status}`)
-  await pipeline(resp.body, createWriteStream(archivePath))
+  await downloadWithRetry(source.url, archivePath)
 
   console.log('Extracting...')
   if (source.archive === 'zip') {
