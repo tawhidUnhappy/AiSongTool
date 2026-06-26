@@ -46,6 +46,7 @@ export function Setup(): React.JSX.Element {
   const [modelOptions, setModelOptions] = useState<ModelOptions | null>(null)
   const [downloadingAceStep, setDownloadingAceStep] = useState(false)
   const [dataDir, setDataDir] = useState<string | null>(null)
+  const [jobRunning, setJobRunning] = useState(false)
 
   const refresh = useCallback(async () => {
     setStatus(await window.api.getDoctorStatus())
@@ -57,6 +58,19 @@ export function Setup(): React.JSX.Element {
     window.api.getModelOptions().then(setModelOptions)
     window.api.getDataDir().then(setDataDir)
   }, [refresh])
+
+  // Polls the main process's single authoritative job lock so every
+  // install/setup button here stays disabled while ANY of them is running
+  // — even across this view (or just one ToolCard) remounting, which
+  // resets component-local "running" state but not the actual job.
+  useEffect(() => {
+    const poll = (): void => {
+      window.api.isJobRunning().then(setJobRunning)
+    }
+    poll()
+    const interval = setInterval(poll, 1000)
+    return () => clearInterval(interval)
+  }, [])
 
   const updateSetting = async <
     K extends Exclude<
@@ -107,7 +121,7 @@ export function Setup(): React.JSX.Element {
       )}
       <div style={{ border: '1px solid #333', borderRadius: 6, padding: 16 }}>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <button onClick={runSetup} disabled={runningSetup}>
+          <button onClick={runSetup} disabled={runningSetup || jobRunning}>
             {runningSetup ? 'Running setup…' : 'Run setup'}
           </button>
           <button onClick={refresh}>Refresh status</button>
@@ -152,6 +166,7 @@ export function Setup(): React.JSX.Element {
           env — model checkpoints download from Hugging Face on first use, not from this app."
         installLabel="Install / update ACE-Step"
         onInstall={() => installAndRefresh('ace-step')}
+        blockedByOtherJob={jobRunning}
         statusText={
           status?.ace_step.synced
             ? `Installed at ${status.ace_step.dir}`
@@ -177,7 +192,7 @@ export function Setup(): React.JSX.Element {
                     onChange={(v) => updateSetting('aceStepDitModel', v)}
                   />
                 </div>
-                <button onClick={downloadAceStepModels} disabled={downloadingAceStep}>
+                <button onClick={downloadAceStepModels} disabled={downloadingAceStep || jobRunning}>
                   {downloadingAceStep ? 'Downloading…' : 'Download selected models'}
                 </button>
               </>
@@ -198,6 +213,7 @@ export function Setup(): React.JSX.Element {
           background image straight from the song's prompt instead of needing one uploaded by hand."
         installLabel="Install Z-Image Turbo"
         onInstall={() => installAndRefresh('z-image')}
+        blockedByOtherJob={jobRunning}
         statusText={
           status?.envs['zimage-uv']?.provisioned && status.envs['zimage-uv'].venv_python
             ? 'Installed.'
@@ -220,6 +236,7 @@ export function Setup(): React.JSX.Element {
           Chat tab for using Gemma 4 like any other chatbot."
         installLabel="Install Gemma 4"
         onInstall={() => installAndRefresh('gemma')}
+        blockedByOtherJob={jobRunning}
         statusText={
           status?.envs['gemma-uv']?.provisioned && status.envs['gemma-uv'].venv_python
             ? 'Installed.'
@@ -261,6 +278,7 @@ export function Setup(): React.JSX.Element {
           background, bass-driven chromatic aberration) instead of the default static-image template."
         installLabel="Install Syrex Visualizer"
         onInstall={() => installAndRefresh('syrex')}
+        blockedByOtherJob={jobRunning}
         statusText={
           status?.envs['syrex-uv']?.provisioned && status.envs['syrex-uv'].venv_python
             ? 'Installed.'

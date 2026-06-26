@@ -25,6 +25,8 @@ const api = {
   getDoctorStatus: (): Promise<DoctorStatus> => ipcRenderer.invoke('get-doctor-status'),
   getDataDir: (): Promise<string> => ipcRenderer.invoke('get-data-dir'),
   terminateJob: (): Promise<void> => ipcRenderer.invoke('terminate-job'),
+  getTerminalHistory: (): Promise<string> => ipcRenderer.invoke('get-terminal-history'),
+  isJobRunning: (): Promise<boolean> => ipcRenderer.invoke('is-job-running'),
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke('get-settings'),
   setSetting: <K extends Exclude<keyof AppSettings, 'promptHistory' | 'imagePromptHistory' | 'referenceSongHistory'>>(
     key: K,

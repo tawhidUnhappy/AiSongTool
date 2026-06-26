@@ -7,6 +7,15 @@ interface ToolCardProps {
   onInstall: () => Promise<number>
   statusText: string
   extra?: ReactNode
+  // True while *any* job is running elsewhere in the app (Setup polls the
+  // main process's single authoritative job lock — see jobs.ts's
+  // isJobRunning()). Disables the button even across this component
+  // remounting (e.g. navigating away and back resets `running` below to
+  // false, but the job that button started may still genuinely be in
+  // progress) — without this, a confused user re-clicking an apparently-
+  // enabled button while a job is still running hit a raw "a job is
+  // already running" error instead of just staying disabled.
+  blockedByOtherJob?: boolean
 }
 
 /** Shared "optional tool" card — title/description/install button/status,
@@ -19,7 +28,8 @@ export function ToolCard({
   installLabel,
   onInstall,
   statusText,
-  extra
+  extra,
+  blockedByOtherJob = false
 }: ToolCardProps): React.JSX.Element {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -36,18 +46,20 @@ export function ToolCard({
     }
   }
 
+  const disabled = running || blockedByOtherJob
+
   return (
     <div style={{ border: '1px solid #333', borderRadius: 6, padding: 16 }}>
       <div style={{ fontWeight: 600, marginBottom: 4 }}>{title}</div>
       <div style={{ fontSize: 12, color: 'var(--ev-c-text-2)', marginBottom: 12 }}>{description}</div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <button onClick={handleClick} disabled={running}>
+        <button onClick={handleClick} disabled={disabled}>
           {running ? 'Working…' : installLabel}
         </button>
         {extra}
       </div>
       <div style={{ fontSize: 12, color: error ? '#e88' : 'var(--ev-c-text-2)', marginTop: 8 }}>
-        {error ?? statusText}
+        {error ?? (!running && blockedByOtherJob ? 'Another job is running — wait for it to finish.' : statusText)}
       </div>
     </div>
   )

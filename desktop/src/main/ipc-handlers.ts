@@ -7,6 +7,7 @@ import { copyFileSync, existsSync } from 'fs'
 import path from 'path'
 import { uniqueDestPath } from './unique-path'
 import {
+  isJobRunning,
   isNamedGuiRunning,
   runBlocking,
   runCapture,
@@ -17,6 +18,7 @@ import {
 } from './jobs'
 import { mainVenvPython, dataDir } from './paths'
 import { ensureMainEnv } from './bootstrap'
+import { recordTerminalChunk, getTerminalHistory } from './terminal-history'
 import * as aceStep from './tools/ace-step'
 import * as zimage from './tools/zimage'
 import * as gemmaWriter from './tools/gemma-writer'
@@ -46,6 +48,7 @@ import {
 } from './settings'
 
 function send(event: IpcMainInvokeEvent, chunk: string): void {
+  recordTerminalChunk(chunk)
   event.sender.send('terminal:data', chunk)
 }
 
@@ -123,6 +126,20 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('terminate-job', () => {
     terminateCurrentJob()
   })
+
+  // Lets a freshly-mounted Terminal pane catch up on output from a job that
+  // started before it was on screen (see terminal-history.ts) instead of
+  // showing nothing and leaving the user to guess whether anything is
+  // actually happening.
+  ipcMain.handle('get-terminal-history', () => getTerminalHistory())
+
+  // Lets views (Setup) disable their own install/setup buttons based on the
+  // single authoritative job lock (jobs.ts) rather than only their own
+  // component-local "running" state, which resets to false on remount (e.g.
+  // navigating away and back) even while the job they started is still
+  // genuinely in progress — clicking again then hit the job lock and surfaced
+  // a raw "A job is already running" error instead of just staying disabled.
+  ipcMain.handle('is-job-running', () => isJobRunning())
 
   // Setup view's "Data folder: <path>" line — the one directory everything
   // this app writes lives under (see paths.ts's dataDir()); deleting it (or

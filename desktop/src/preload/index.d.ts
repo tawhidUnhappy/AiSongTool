@@ -23,6 +23,8 @@ interface Api {
   getDoctorStatus: () => Promise<DoctorStatus>
   getDataDir: () => Promise<string>
   terminateJob: () => Promise<void>
+  getTerminalHistory: () => Promise<string>
+  isJobRunning: () => Promise<boolean>
   getSettings: () => Promise<AppSettings>
   setSetting: <K extends Exclude<keyof AppSettings, 'promptHistory' | 'imagePromptHistory' | 'referenceSongHistory'>>(
     key: K,

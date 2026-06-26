@@ -40,8 +40,26 @@ export function Terminal(): React.JSX.Element {
     const resizeObserver = new ResizeObserver(() => fitAddon.fit())
     resizeObserver.observe(containerRef.current)
 
+    // Catch up on whatever already happened before this pane was mounted
+    // (e.g. a job started from the Setup view while the user was on a
+    // different tab) instead of showing nothing, with no gap/reorder: queue
+    // live chunks that arrive while the history fetch is still in flight,
+    // write history first, then flush the queue, then switch to writing
+    // live chunks directly.
+    let replayed = false
+    let pending: string[] = []
     const unsubscribe = window.api.onTerminalData((chunk) => {
-      term.write(chunk)
+      if (replayed) {
+        term.write(chunk)
+      } else {
+        pending.push(chunk)
+      }
+    })
+    window.api.getTerminalHistory().then((history) => {
+      term.write(history)
+      for (const chunk of pending) term.write(chunk)
+      pending = []
+      replayed = true
     })
 
     return () => {
