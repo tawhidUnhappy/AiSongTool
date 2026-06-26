@@ -10,11 +10,9 @@ export interface AppSettings {
   aceStepLmModel: string
   aceStepDitModel: string
   whisperModel: string
-  gemmaModel: string
   promptHistory: string[]
   promptHistoryEnabled: boolean
   imagePromptHistory: string[]
-  referenceSongHistory: string[]
 
   // Create view — every dropdown/checkbox/radio remembered across restarts,
   // so reopening the app doesn't reset them to defaults. Free-text fields
@@ -22,15 +20,12 @@ export interface AppSettings {
   // own history feature, and a remembered seed would silently make every
   // future "random" run reproduce the same output.
   createMode: 'generate' | 'existing'
-  createSongNameSource: 'manual' | 'gemma'
-  createSongStyleSource: 'manual' | 'gemma'
-  createLyricsSource: 'manual' | 'gemma'
   createInstrumental: boolean
   createVocalLanguage: string
   createDuration: number
   createCaptionSource: 'auto' | 'transcript' | 'lyrics'
   createImageSource: 'auto' | 'pick'
-  createImagePromptMode: 'song' | 'manual' | 'gemma'
+  createImagePromptMode: 'song' | 'manual'
   // Video template — 'sky' is the original static-image + centered Edo-font
   // captions look (background image prompt hardcoded to "Minimalistic red
   // sky"); 'syrex' is the audio-reactive visualizer (curved baseline, tower
@@ -42,7 +37,7 @@ export interface AppSettings {
   createNightcore: boolean
 
   // Vocal separation (Demucs) + WhisperX's voice-activity-detection backend
-  // — configured once in the Setup view (same pattern as the WhisperX/Gemma/
+  // — configured once in the Setup view (same pattern as the WhisperX/
   // ACE-Step model pickers above) and used as the default by both the
   // Create flow's pipeline and the Tools view's "Transcribe to .srt".
   demucsModel: string
@@ -67,16 +62,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   aceStepLmModel: 'acestep-5Hz-lm-1.7B',
   aceStepDitModel: 'acestep-v15-turbo',
   whisperModel: 'large-v3',
-  gemmaModel: 'google/gemma-4-E4B-it',
   promptHistory: [],
   promptHistoryEnabled: true,
   imagePromptHistory: [],
-  referenceSongHistory: [],
 
   createMode: 'generate',
-  createSongNameSource: 'manual',
-  createSongStyleSource: 'manual',
-  createLyricsSource: 'manual',
   createInstrumental: false,
   createVocalLanguage: 'unknown',
   // 3m20s — long enough for a full verse/chorus/verse/chorus/bridge
@@ -170,31 +160,6 @@ export function clearImagePromptHistory(): void {
   setSetting('imagePromptHistory', [])
 }
 
-/** Same idea again, for the "reference song" field — pasted reference
- * lyrics/descriptions are remembered so a previous reference can be reused,
- * same on/off toggle as the other two. Deliberately separate from any
- * per-run seed (seed is never persisted) since the point of a reference
- * run is a fresh, newly-generated song every time, not a reproducible one. */
-export function addReferenceSongHistoryEntry(text: string): void {
-  const trimmed = text.trim()
-  const current = getSettings()
-  if (!current.promptHistoryEnabled || !trimmed) return
-  const next = [trimmed, ...current.referenceSongHistory.filter((p) => p !== trimmed)].slice(0, MAX_PROMPT_HISTORY)
-  setSetting('referenceSongHistory', next)
-}
-
-export function removeReferenceSongHistoryEntry(text: string): void {
-  const current = getSettings()
-  setSetting(
-    'referenceSongHistory',
-    current.referenceSongHistory.filter((p) => p !== text)
-  )
-}
-
-export function clearReferenceSongHistory(): void {
-  setSetting('referenceSongHistory', [])
-}
-
 export const DEMUCS_MODEL_OPTIONS = [
   { value: 'htdemucs', label: 'htdemucs — fast/default' },
   { value: 'htdemucs_ft', label: 'htdemucs_ft — fine-tuned, better isolation, ~4x slower' },
@@ -220,11 +185,4 @@ export const WHISPER_MODEL_OPTIONS = [
   { value: 'large-v2', label: 'large-v2' },
   { value: 'large-v3', label: 'large-v3 — best accuracy' },
   { value: 'large-v3-turbo', label: 'large-v3-turbo — fast + accurate' }
-]
-
-// "E2B"/"E4B" = Gemma's elastic-parameter naming (effective ~2B/~4B compute
-// from one model family), matching the E4B id already used by gemma_write.py.
-export const GEMMA_MODEL_OPTIONS = [
-  { value: 'google/gemma-4-E2B-it', label: 'E2B — faster' },
-  { value: 'google/gemma-4-E4B-it', label: 'E4B — best quality' }
 ]

@@ -96,8 +96,8 @@ interface QueryResultItem {
  * poll `/query_result` until done, then download the finished file from
  * `/v1/audio?path=...`.
  *
- * `prompt`/`lyrics` are always literal — the caller (create-pipeline.ts) has
- * already resolved who wrote them (manual text or Gemma 4). `instrumental`
+ * `prompt`/`lyrics` are always literal manual text — the caller
+ * (create-pipeline.ts) passes them through as-is. `instrumental`
  * sends empty lyrics (no separate "[Instrumental]" convention confirmed for
  * this API, unlike acestep.cpp's documented one). `vocalLanguage` should
  * already be resolved to a real code by the caller rather than left

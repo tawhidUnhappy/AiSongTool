@@ -5,8 +5,8 @@
  * shipped prebuilt Windows binaries with no Mac/Linux release or working
  * upstream CI, which would have meant compiling a C++ engine from source
  * per-OS in our own release pipeline. The original ACE-Step-1.5 installs the
- * same way Z-Image/Gemma/Syrex already do here, and gets CUDA/MPS/ROCm/CPU
- * device selection for free from `torch` — no per-OS binary at all.
+ * same way Z-Image/Syrex already do here, and gets CUDA/MPS/ROCm/CPU device
+ * selection for free from `torch` — no per-OS binary at all.
  *
  * Unlike those other tools, installation itself (`git clone` + `uv sync`)
  * stays on the Python side (`aisongtool/ace_step.py`, via `aisongtool.cli

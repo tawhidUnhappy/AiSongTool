@@ -14,9 +14,10 @@ import type {
 interface Api {
   runSetup: () => Promise<number>
   installTool: (name: string) => Promise<number>
+  resetTool: (name: string) => Promise<number>
   launchAceStep: () => Promise<void>
+  isAceStepUiUp: () => Promise<boolean>
   launchZimageGui: () => Promise<void>
-  launchGemmaGui: () => Promise<void>
   openExternal: (url: string) => Promise<void>
   stopGui: (name: string) => Promise<void>
   isGuiRunning: (name: string) => Promise<boolean>
@@ -26,7 +27,7 @@ interface Api {
   getTerminalHistory: () => Promise<string>
   isJobRunning: () => Promise<boolean>
   getSettings: () => Promise<AppSettings>
-  setSetting: <K extends Exclude<keyof AppSettings, 'promptHistory' | 'imagePromptHistory' | 'referenceSongHistory'>>(
+  setSetting: <K extends Exclude<keyof AppSettings, 'promptHistory' | 'imagePromptHistory'>>(
     key: K,
     value: AppSettings[K]
   ) => Promise<void>
@@ -39,9 +40,6 @@ interface Api {
   addImagePromptHistory: (prompt: string) => Promise<void>
   removeImagePromptHistory: (prompt: string) => Promise<void>
   clearImagePromptHistory: () => Promise<void>
-  addReferenceSongHistory: (text: string) => Promise<void>
-  removeReferenceSongHistory: (text: string) => Promise<void>
-  clearReferenceSongHistory: () => Promise<void>
   onTerminalData: (callback: (chunk: string) => void) => () => void
   resizeTerminal: (cols: number, rows: number) => void
 

@@ -10,7 +10,7 @@ import sys
 from importlib.metadata import version
 from pathlib import Path
 
-from . import ace_step, gemma_writer, syrex, zimage
+from . import ace_step, syrex, zimage
 from .config import DemucsConfig, LyricsConfig, PipelineConfig, ToolFolders, WhisperXConfig
 from .pipeline_core import run_pipeline
 from .tools_install import ROOT, doctor, envs_provisioned, gpu_status, main as setup_main, setup_envs
@@ -106,7 +106,7 @@ def _app(args: argparse.Namespace) -> int:
 
 # Tools with no extra CLI flags of their own — each `install()` is the
 # one-call shape `ensure_env`/`ace_step.install` already provide.
-_SIMPLE_INSTALLERS = {"z-image": zimage.install, "gemma": gemma_writer.install, "syrex": syrex.install}
+_SIMPLE_INSTALLERS = {"z-image": zimage.install, "syrex": syrex.install}
 
 
 def _install_tool(args: argparse.Namespace) -> int:
@@ -128,6 +128,18 @@ def _install_tool(args: argparse.Namespace) -> int:
     known = ", ".join(["ace-step", *_SIMPLE_INSTALLERS])
     print(f"[install-tool] unknown tool '{args.name}'. Known: {known}", file=sys.stderr)
     return 1
+
+
+def _reset_tool(args: argparse.Namespace) -> int:
+    if args.name != "ace-step":
+        print(f"[reset-tool] '{args.name}' isn't supported yet. Known: ace-step", file=sys.stderr)
+        return 1
+    try:
+        ace_step.update_to_official()
+    except ace_step.AceStepError as exc:
+        print(f"[reset-tool] {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def _doctor(args: argparse.Namespace) -> int:
@@ -183,9 +195,16 @@ def main() -> int:
     install_tool_ap = sub.add_parser(
         "install-tool", help="Clone + `uv sync` an optional external tool into its own isolated env"
     )
-    install_tool_ap.add_argument("name", help="Tool to install (currently: ace-step, z-image, gemma)")
+    install_tool_ap.add_argument("name", help="Tool to install (currently: ace-step, z-image, syrex)")
     install_tool_ap.add_argument("--update", action="store_true", help="Pull latest changes if already cloned")
     install_tool_ap.set_defaults(func=_install_tool)
+
+    reset_tool_ap = sub.add_parser(
+        "reset-tool",
+        help="Discard local changes and reset a cloned tool to the latest official upstream version",
+    )
+    reset_tool_ap.add_argument("name", help="Tool to reset (currently: ace-step)")
+    reset_tool_ap.set_defaults(func=_reset_tool)
 
     ace_step_ap = sub.add_parser(
         "ace-step", help="Launch ACE-Step-1.5 (music generation) from its isolated env"

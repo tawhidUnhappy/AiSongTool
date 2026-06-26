@@ -23,22 +23,10 @@ export function Create(): React.JSX.Element {
   }, [])
 
   const [mode, setMode] = useState<'generate' | 'existing'>('generate')
-  const [songNameSource, setSongNameSource] = useState<'manual' | 'gemma'>('manual')
   const [songName, setSongName] = useState('')
-  const [songStyleSource, setSongStyleSource] = useState<'manual' | 'gemma'>('manual')
   const [prompt, setPrompt] = useState('')
-  const [lyricsSource, setLyricsSource] = useState<'manual' | 'gemma'>('manual')
   const [genLyrics, setGenLyrics] = useState('')
   const [instrumental, setInstrumental] = useState(false)
-  const allGemma = songNameSource === 'gemma' && songStyleSource === 'gemma' && lyricsSource === 'gemma'
-  const setAllSources = (gemma: boolean): void => {
-    const v = gemma ? 'gemma' : 'manual'
-    setSongNameSource(v)
-    setSongStyleSource(v)
-    setLyricsSource(v)
-  }
-  const [useReferenceSong, setUseReferenceSong] = useState(false)
-  const [referenceSong, setReferenceSong] = useState('')
   const [vocalLanguage, setVocalLanguage] = useState('unknown')
   const [seedText, setSeedText] = useState('')
   // 3m20s (200s) — long enough for a full verse/chorus/verse/chorus/bridge
@@ -54,13 +42,12 @@ export function Create(): React.JSX.Element {
 
   const [imageSource, setImageSource] = useState<'auto' | 'pick'>('auto')
   const [imagePath, setImagePath] = useState<string | null>(null)
-  const [imagePromptMode, setImagePromptMode] = useState<'song' | 'manual' | 'gemma'>('song')
+  const [imagePromptMode, setImagePromptMode] = useState<'song' | 'manual'>('song')
   const [imagePromptText, setImagePromptText] = useState('')
 
   const [promptHistory, setPromptHistory] = useState<string[]>([])
   const [promptHistoryEnabled, setPromptHistoryEnabled] = useState(true)
   const [imagePromptHistory, setImagePromptHistory] = useState<string[]>([])
-  const [referenceSongHistory, setReferenceSongHistory] = useState<string[]>([])
 
   // Remembers every dropdown/checkbox choice below across restarts (not
   // free-text fields like prompt/lyrics/seed — see settings.ts). Loaded once
@@ -73,11 +60,7 @@ export function Create(): React.JSX.Element {
       setPromptHistory(s.promptHistory)
       setPromptHistoryEnabled(s.promptHistoryEnabled)
       setImagePromptHistory(s.imagePromptHistory)
-      setReferenceSongHistory(s.referenceSongHistory)
       setMode(s.createMode)
-      setSongNameSource(s.createSongNameSource)
-      setSongStyleSource(s.createSongStyleSource)
-      setLyricsSource(s.createLyricsSource)
       setInstrumental(s.createInstrumental)
       setVocalLanguage(s.createVocalLanguage)
       setDuration(s.createDuration)
@@ -93,15 +76,6 @@ export function Create(): React.JSX.Element {
   useEffect(() => {
     if (loadedSettings) window.api.setSetting('createMode', mode)
   }, [loadedSettings, mode])
-  useEffect(() => {
-    if (loadedSettings) window.api.setSetting('createSongNameSource', songNameSource)
-  }, [loadedSettings, songNameSource])
-  useEffect(() => {
-    if (loadedSettings) window.api.setSetting('createSongStyleSource', songStyleSource)
-  }, [loadedSettings, songStyleSource])
-  useEffect(() => {
-    if (loadedSettings) window.api.setSetting('createLyricsSource', lyricsSource)
-  }, [loadedSettings, lyricsSource])
   useEffect(() => {
     if (loadedSettings) window.api.setSetting('createInstrumental', instrumental)
   }, [loadedSettings, instrumental])
@@ -150,16 +124,6 @@ export function Create(): React.JSX.Element {
   const clearImagePromptHistory = async (): Promise<void> => {
     setImagePromptHistory([])
     await window.api.clearImagePromptHistory()
-  }
-
-  const removeReferenceSongHistoryEntry = async (entry: string): Promise<void> => {
-    setReferenceSongHistory((prev) => prev.filter((p) => p !== entry))
-    await window.api.removeReferenceSongHistory(entry)
-  }
-
-  const clearReferenceSongHistory = async (): Promise<void> => {
-    setReferenceSongHistory([])
-    await window.api.clearReferenceSongHistory()
   }
 
   const [running, setRunning] = useState(false)
@@ -227,11 +191,7 @@ export function Create(): React.JSX.Element {
 
   const run = async (): Promise<void> => {
     if (running) return
-    if (mode === 'generate' && useReferenceSong && !referenceSong.trim()) {
-      setStatusText('Paste a reference song first.')
-      return
-    }
-    if (mode === 'generate' && !useReferenceSong && !prompt.trim()) {
+    if (mode === 'generate' && !prompt.trim()) {
       setStatusText('Describe the song you want first.')
       return
     }
@@ -263,14 +223,6 @@ export function Create(): React.JSX.Element {
         await window.api.addImagePromptHistory(trimmed)
       }
     }
-    if (useReferenceSong && promptHistoryEnabled) {
-      const trimmed = referenceSong.trim()
-      if (trimmed) {
-        setReferenceSongHistory((prev) => [trimmed, ...prev.filter((p) => p !== trimmed)].slice(0, 20))
-        await window.api.addReferenceSongHistory(trimmed)
-      }
-    }
-
     setRunning(true)
     setFlow(null)
     setSubtitleOutputs([])
@@ -283,14 +235,10 @@ export function Create(): React.JSX.Element {
       genLyrics: genLyrics.trim(),
       duration,
       genOptions: {
-        songNameSource,
-        songStyleSource,
-        lyricsSource,
         vocalLanguage,
         instrumental,
         seed
       },
-      referenceSong: useReferenceSong ? referenceSong.trim() : '',
       existingSong: existingSongPath,
       existingLyrics: existingLyrics.trim(),
       captionSource,
@@ -359,128 +307,71 @@ export function Create(): React.JSX.Element {
           <>
             <hr style={hr} />
 
-            <label style={{ fontSize: 13 }}>
-              <input
-                type="checkbox"
-                checked={useReferenceSong}
-                onChange={(e) => setUseReferenceSong(e.target.checked)}
-              />{' '}
-              <strong>🎵 Inspired by a reference song</strong>
-            </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 13 }}>
+                <strong>Song style</strong>
+                <span style={muted}> — what the song sounds like (genre, mood, tempo, vocals)</span>
+              </span>
+              <textarea
+                placeholder="e.g. upbeat synth-pop, female vocals, energetic"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                rows={2}
+                style={textareaStyle}
+              />
+              <span style={muted}>
+                ACE-Step's own LM expands this into full generation metadata (bpm/key/CoT caption)
+                automatically — no separate writing step needed.
+              </span>
+            </div>
 
-            {useReferenceSong ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <textarea
-                  placeholder="Paste a reference song's lyrics and/or a description of it (genre, mood, structure)…"
-                  value={referenceSong}
-                  onChange={(e) => setReferenceSong(e.target.value)}
-                  rows={6}
-                  style={textareaStyle}
-                />
-                <span style={muted}>
-                  Gemma 4 writes a new, original song in the reference's style — its own title, its own
-                  lyrics, inspired by the genre/mood/structure but not copying any specific lines, hooks, or
-                  the title from it.
-                </span>
-                <PromptHistory
-                  entries={referenceSongHistory}
-                  enabled={promptHistoryEnabled}
-                  onPick={setReferenceSong}
-                  onRemove={removeReferenceSongHistoryEntry}
-                  onClear={clearReferenceSongHistory}
-                  onToggleEnabled={toggleHistoryEnabled}
-                />
-              </div>
-            ) : (
-              <>
-                <label style={{ ...row, fontSize: 13 }}>
-                  <input type="checkbox" checked={allGemma} onChange={(e) => setAllSources(e.target.checked)} />
-                  <strong>✨ Let Gemma 4 write the whole song</strong>
-                  <span style={muted}>(name, style, and lyrics — uncheck any one below to write it yourself)</span>
-                </label>
-
-                <FieldSource
-                  label="Song style"
-                  hint="what the song sounds like (genre, mood, tempo, vocals)"
-                  source={songStyleSource}
-                  onChange={setSongStyleSource}
-                  manualField={
-                    <textarea
-                      placeholder="e.g. upbeat synth-pop, female vocals, energetic"
-                      value={prompt}
-                      onChange={(e) => setPrompt(e.target.value)}
-                      rows={2}
-                      style={textareaStyle}
-                    />
-                  }
-                  gemmaField={
-                    <textarea
-                      placeholder="Describe the song for Gemma 4 — e.g. a happy upbeat song about summer love"
-                      value={prompt}
-                      onChange={(e) => setPrompt(e.target.value)}
-                      rows={2}
-                      style={textareaStyle}
-                    />
-                  }
-                />
-
-                <PromptHistory
-                  entries={promptHistory}
-                  enabled={promptHistoryEnabled}
-                  onPick={setPrompt}
-                  onRemove={removeHistoryEntry}
-                  onClear={clearHistory}
-                  onToggleEnabled={toggleHistoryEnabled}
-                />
-              </>
-            )}
+            <PromptHistory
+              entries={promptHistory}
+              enabled={promptHistoryEnabled}
+              onPick={setPrompt}
+              onRemove={removeHistoryEntry}
+              onClear={clearHistory}
+              onToggleEnabled={toggleHistoryEnabled}
+            />
 
             <label style={{ fontSize: 13 }}>
               <input type="checkbox" checked={instrumental} onChange={(e) => setInstrumental(e.target.checked)} /> No
               vocals (instrumental)
             </label>
 
-            {!instrumental && !useReferenceSong && (
-              <FieldSource
-                label="Lyrics"
-                source={lyricsSource}
-                onChange={setLyricsSource}
-                manualField={
-                  <textarea
-                    placeholder="Lyrics are needed for the final lyrics video."
-                    value={genLyrics}
-                    onChange={(e) => setGenLyrics(e.target.value)}
-                    rows={4}
-                    style={textareaStyle}
-                  />
-                }
-                gemmaNote="Gemma 4 writes lyrics matching the song style above."
-              />
+            {!instrumental && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ fontSize: 13 }}>
+                  <strong>Lyrics</strong>
+                </span>
+                <textarea
+                  placeholder="Lyrics are needed for the final lyrics video."
+                  value={genLyrics}
+                  onChange={(e) => setGenLyrics(e.target.value)}
+                  rows={4}
+                  style={textareaStyle}
+                />
+              </div>
             )}
 
-            {!useReferenceSong && (
-              <FieldSource
-                label="Song name"
-                source={songNameSource}
-                onChange={setSongNameSource}
-                manualField={
-                  <input
-                    placeholder="e.g. Neon Heartbreak"
-                    value={songName}
-                    onChange={(e) => setSongName(e.target.value)}
-                    style={{ width: '100%', boxSizing: 'border-box' }}
-                  />
-                }
-                gemmaNote="Gemma 4 picks a title matching the song style above."
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 13 }}>
+                <strong>Song name</strong>
+              </span>
+              <input
+                placeholder="e.g. Neon Heartbreak"
+                value={songName}
+                onChange={(e) => setSongName(e.target.value)}
+                style={{ width: '100%', boxSizing: 'border-box' }}
               />
-            )}
+            </div>
 
             <hr style={hr} />
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ev-c-text-2)' }}>Generation settings</div>
             <div style={row}>
               <Field label="Vocal language">
                 <select value={vocalLanguage} onChange={(e) => setVocalLanguage(e.target.value)}>
-                  <option value="unknown">Auto-detect (Gemma 4)</option>
+                  <option value="unknown">Auto (defaults to English)</option>
                   <option value="en">English</option>
                   <option value="ja">Japanese</option>
                   <option value="ko">Korean</option>
@@ -501,30 +392,16 @@ export function Create(): React.JSX.Element {
                 />
               </Field>
             </div>
-            {(useReferenceSong || lyricsSource === 'gemma') && !instrumental ? (
-              <Field label={`Duration: ${fmtDuration(duration)}`}>
-                <input
-                  type="range"
-                  min={10}
-                  max={240}
-                  value={duration}
-                  onChange={(e) => setDuration(Number(e.target.value))}
-                  style={{ width: '100%' }}
-                />
-                <div style={muted}>Gemma 4 also writes lyrics sized to match this length.</div>
-              </Field>
-            ) : (
-              <Field label={`Duration: ${fmtDuration(duration)}`}>
-                <input
-                  type="range"
-                  min={10}
-                  max={240}
-                  value={duration}
-                  onChange={(e) => setDuration(Number(e.target.value))}
-                  style={{ width: '100%' }}
-                />
-              </Field>
-            )}
+            <Field label={`Duration: ${fmtDuration(duration)}`}>
+              <input
+                type="range"
+                min={10}
+                max={240}
+                value={duration}
+                onChange={(e) => setDuration(Number(e.target.value))}
+                style={{ width: '100%' }}
+              />
+            </Field>
           </>
         ) : (
           <>
@@ -603,22 +480,12 @@ export function Create(): React.JSX.Element {
               onChange={(v) => setImagePromptMode(v as typeof imagePromptMode)}
               options={[
                 ['song', "Use the song's prompt"],
-                ['manual', 'Write my own image prompt'],
-                ['gemma', 'Let Gemma 4 write it']
+                ['manual', 'Write my own image prompt']
               ]}
             />
             {imagePromptMode === 'manual' && (
               <textarea
                 placeholder="e.g. a neon-lit city skyline at night, cinematic, rain-soaked streets"
-                value={imagePromptText}
-                onChange={(e) => setImagePromptText(e.target.value)}
-                rows={2}
-                style={textareaStyle}
-              />
-            )}
-            {imagePromptMode === 'gemma' && (
-              <textarea
-                placeholder="Optional short description for Gemma to base the image prompt on — leave blank to use the song's prompt"
                 value={imagePromptText}
                 onChange={(e) => setImagePromptText(e.target.value)}
                 rows={2}
@@ -782,50 +649,6 @@ function TemplateCards({
   )
 }
 
-/** One field (song name/style/lyrics) with an independent "I'll write it" /
- * "Let Gemma 4 write it" toggle — any combination across the three fields is
- * allowed, instead of one all-or-nothing mode. */
-function FieldSource({
-  label,
-  hint,
-  source,
-  onChange,
-  manualField,
-  gemmaField,
-  gemmaNote
-}: {
-  label: string
-  hint?: string
-  source: 'manual' | 'gemma'
-  onChange: (v: 'manual' | 'gemma') => void
-  manualField: React.ReactNode
-  gemmaField?: React.ReactNode
-  gemmaNote?: string
-}): React.JSX.Element {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-        <span style={{ fontSize: 13 }}>
-          <strong>{label}</strong>
-          {hint && <span style={muted}> — {hint}</span>}
-        </span>
-        <label style={{ fontSize: 12, color: 'var(--ev-c-text-2)', whiteSpace: 'nowrap' }}>
-          <input
-            type="checkbox"
-            checked={source === 'gemma'}
-            onChange={(e) => onChange(e.target.checked ? 'gemma' : 'manual')}
-          />{' '}
-          ✨ let Gemma 4 write it
-        </label>
-      </div>
-      {source === 'manual' && manualField}
-      {source === 'gemma' && (gemmaField ?? <div style={muted}>{gemmaNote}</div>)}
-    </div>
-  )
-}
-
-/** A labeled control — gives bare `<select>`/`<input>` elements a visible
- * caption instead of relying on placeholder text alone. */
 /** Recently-used "describe the song" prompts — recorded each time a Create
  * run actually starts, not on every keystroke. Each entry can be removed
  * individually, and history can be cleared or turned off entirely. */

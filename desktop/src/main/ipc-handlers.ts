@@ -21,7 +21,6 @@ import { ensureMainEnv } from './bootstrap'
 import { recordTerminalChunk, getTerminalHistory } from './terminal-history'
 import * as aceStep from './tools/ace-step'
 import * as zimage from './tools/zimage'
-import * as gemmaWriter from './tools/gemma-writer'
 import * as createPipeline from './create-pipeline'
 import type { RunAllParams } from './create-pipeline'
 import { runTranscribe } from './transcribe-pipeline'
@@ -36,11 +35,7 @@ import {
   addImagePromptHistoryEntry,
   removeImagePromptHistoryEntry,
   clearImagePromptHistory,
-  addReferenceSongHistoryEntry,
-  removeReferenceSongHistoryEntry,
-  clearReferenceSongHistory,
   WHISPER_MODEL_OPTIONS,
-  GEMMA_MODEL_OPTIONS,
   DEMUCS_MODEL_OPTIONS,
   DEMUCS_SHIFTS_OPTIONS,
   VAD_OPTIONS,
@@ -76,11 +71,23 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('install-tool', async (event, name: string) => {
     // ace-step is now a real `git clone` + `uv sync` install (ACE-Step-1.5,
     // replacing the old acestep.cpp binary downloads), same shape as
-    // z-image/gemma/syrex — no more special-casing it here, it goes through
-    // the same `aisongtool.cli install-tool` path as everything else.
+    // z-image/syrex — no more special-casing it here, it goes through the
+    // same `aisongtool.cli install-tool` path as everything else.
     const onData = (chunk: string): void => send(event, chunk)
     await ensureMainEnv(onData)
     const cmd = [mainVenvPython(), '-m', 'aisongtool.cli', 'install-tool', name]
+    return runBlocking(cmd, dataDir(), onData)
+  })
+
+  // "Reset to default" for ACE-Step — discards any local modifications to
+  // the cloned repo (git reset --hard + clean) and pulls the latest official
+  // commit, same as a fresh clone would have, without re-downloading the
+  // already-synced env or any model checkpoints (both gitignored inside that
+  // repo — see ace_step.py's update_to_official()).
+  ipcMain.handle('reset-tool', async (event, name: string) => {
+    const onData = (chunk: string): void => send(event, chunk)
+    await ensureMainEnv(onData)
+    const cmd = [mainVenvPython(), '-m', 'aisongtool.cli', 'reset-tool', name]
     return runBlocking(cmd, dataDir(), onData)
   })
 
@@ -88,13 +95,27 @@ export function registerIpcHandlers(): void {
     // `uv run acestep` — the actual Gradio demo UI (port 7860). Previously
     // this launched `acestep-api` (the headless REST server on 8001 that
     // create-pipeline.ts's ace-step-api.ts talks to) and opened its bare
-    // root URL, which has no page and just 404'd.
+    // root URL, which has no page and just 404'd. Embedded in the renderer's
+    // own "ACE-Step" tab via a <webview> now instead of the system browser
+    // — see ace-step-ui-up below, which that tab polls before pointing the
+    // webview at the URL.
     const cmd = aceStep.buildGuiCmd()
     spawnDetached(cmd, aceStep.destDir(), (chunk) => send(event, chunk), undefined, 'ace-step')
-    // Give the Gradio server a moment to come up before opening the browser
-    // — model/UI startup can take a while, but this just opens the
-    // (already-listening) local URL, not waiting on a generation.
-    setTimeout(() => shell.openExternal('http://127.0.0.1:7860'), 2000)
+  })
+
+  // Polled by the renderer's ACE-Step tab to know when the Gradio UI is
+  // actually ready to load in its <webview> — model/UI startup can take a
+  // while, so a fixed post-launch delay isn't reliable.
+  ipcMain.handle('is-ace-step-ui-up', async () => {
+    try {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 2000)
+      const resp = await fetch('http://127.0.0.1:7860', { signal: controller.signal })
+      clearTimeout(timer)
+      return resp.status < 500
+    } catch {
+      return false
+    }
   })
 
   ipcMain.handle('stop-gui', (_event, name: string) => stopNamedGui(name))
@@ -106,15 +127,9 @@ export function registerIpcHandlers(): void {
     spawnDetached(cmd, zimage.destDir(), (chunk) => send(event, chunk), undefined, 'zimage')
   })
 
-  ipcMain.handle('launch-gemma-gui', (event) => {
-    const cmd = gemmaWriter.buildGuiCmd()
-    spawnDetached(cmd, gemmaWriter.destDir(), (chunk) => send(event, chunk), undefined, 'gemma')
-  })
-
-  // Gemma's (and Z-Image's) Gradio server can take a while to come up —
-  // model loading makes a fixed post-launch delay unreliable — so the
-  // renderer offers an explicit "open in browser" action instead of trying
-  // to auto-open it.
+  // Z-Image's Gradio server can take a while to come up — model loading
+  // makes a fixed post-launch delay unreliable — so the renderer offers an
+  // explicit "open in browser" action instead of trying to auto-open it.
   ipcMain.handle('open-external', (_event, url: string) => shell.openExternal(url))
 
   ipcMain.handle('get-doctor-status', async () => {
@@ -155,16 +170,16 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('get-settings', () => getSettings())
 
   // Generic for every plain (string/boolean/number) setting — promptHistory
-  // imagePromptHistory, and referenceSongHistory are the exceptions, since
-  // they need add/remove/clear array mutation, not a flat replace. The
-  // renderer's typed `window.api.setSetting` call site is what actually
-  // keeps `key`/`value` correlated; this boundary just forwards whatever
+  // and imagePromptHistory are the exceptions, since they need
+  // add/remove/clear array mutation, not a flat replace. The renderer's
+  // typed `window.api.setSetting` call site is what actually keeps
+  // `key`/`value` correlated; this boundary just forwards whatever
   // already-validated pair it received.
   ipcMain.handle(
     'set-setting',
     (
       _event,
-      key: Exclude<keyof AppSettings, 'promptHistory' | 'imagePromptHistory' | 'referenceSongHistory'>,
+      key: Exclude<keyof AppSettings, 'promptHistory' | 'imagePromptHistory'>,
       value: AppSettings[typeof key]
     ) => {
       setSetting(key, value as never)
@@ -185,17 +200,10 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('clear-image-prompt-history', () => clearImagePromptHistory())
 
-  ipcMain.handle('add-reference-song-history', (_event, text: string) => addReferenceSongHistoryEntry(text))
-
-  ipcMain.handle('remove-reference-song-history', (_event, text: string) => removeReferenceSongHistoryEntry(text))
-
-  ipcMain.handle('clear-reference-song-history', () => clearReferenceSongHistory())
-
   ipcMain.handle('get-model-options', () => ({
     aceStepLm: aceStep.LM_MODEL_OPTIONS,
     aceStepDit: aceStep.DIT_MODEL_OPTIONS,
     whisper: WHISPER_MODEL_OPTIONS,
-    gemma: GEMMA_MODEL_OPTIONS,
     demucs: DEMUCS_MODEL_OPTIONS,
     demucsShifts: DEMUCS_SHIFTS_OPTIONS,
     vad: VAD_OPTIONS

@@ -58,17 +58,6 @@ ENV_SPECS: dict[str, dict] = {
         ],
         "cuda_index": "https://download.pytorch.org/whl/cu128",
     },
-    "gemma-uv": {
-        # Gemma 4 (google/gemma-4-E4B-it) — writes song style + lyrics +
-        # image prompt from one short description, for the Create flow's
-        # "Let Gemma 4 write everything" option. 4-bit quantized via
-        # bitsandbytes keeps this to a few GB VRAM.
-        "deps": [
-            "torch==2.8.0", "transformers", "accelerate", "bitsandbytes",
-            "sentencepiece", "protobuf", "gradio",
-        ],
-        "cuda_index": "https://download.pytorch.org/whl/cu128",
-    },
     "syrex-uv": {
         # The "Syrex" video template — an audio-reactive visualizer (curved
         # baseline, tower-shaped frequency spikes, panning background,

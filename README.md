@@ -24,7 +24,7 @@ ships both a portable build (no install, run from anywhere) and a system install
 `ffmpeg`/`ffprobe` are bundled — no separate install needed. `git` and
 [`uv`](https://docs.astral.sh/uv/) must already be on your system `PATH`; the app uses
 them to provision everything else (the main environment, and any of WhisperX/Demucs/
-Z-Image/Gemma 4/ACE-Step-1.5 you choose to install) on first run.
+Z-Image/ACE-Step-1.5 you choose to install) on first run.
 
 Builds are unsigned (no paid code-signing certificate) — Windows SmartScreen / macOS
 Gatekeeper will warn on first launch; that's expected, not a sign anything's wrong.
@@ -35,9 +35,8 @@ Gatekeeper will warn on first launch; that's expected, not a sign anything's wro
    and setting this app ever writes lives there — see [Self-contained](#self-contained)
    below) and lets you provision the environments you need.
 2. Click **Run setup**, then install whichever optional tools you want (ACE-Step-1.5 for
-   song generation, Z-Image for background images, Gemma 4 for AI-written lyrics/prompts).
-   Each downloads its own models on first use — expect several GB and a real wait the
-   first time.
+   song generation, Z-Image for background images). Each downloads its own models on
+   first use — expect several GB and a real wait the first time.
 3. Head to **Create** and generate a song, or **Tools** to just subtitle/edit an existing
    one.
 
@@ -71,13 +70,18 @@ installed app's own files. A few notes depending on how you installed:
 
 ## What it does
 
-- **Create** — the main flow: generate a song with ACE-Step-1.5 (prompt + optional
-  lyrics, or let Gemma 4 write the song name/style/lyrics/image prompt for you) or
+- **Create** — the main flow: generate a song with ACE-Step-1.5 (style prompt + optional
+  lyrics — its own 5Hz LM expands that into full generation metadata automatically) or
   pick/upload an existing one. Either way it automatically runs vocal separation
   (Demucs) and transcription/alignment (WhisperX) to produce SRT/ASS/VTT/LRC/SBV +
   karaoke timing, generates or lets you pick a background image, and renders the final
   lyric video — optionally with the nightcore speed/pitch edit, on by default. One
   guided flow, end to end.
+- **ACE-Step UI** — ACE-Step-1.5's own full Gradio UI, embedded directly in the app (not
+  just the Create flow's simplified options) for generating/editing/remixing songs with
+  its complete feature set. A "Reset to official latest" button in Setup discards any
+  local changes to the cloned repo and pulls the newest official version, without
+  re-downloading already-fetched model checkpoints.
 - **Tools** — the single-purpose pieces, for when you don't want the full flow:
   *Subtitles* (song → SRT/ASS/VTT/LRC/SBV only), *Lyric Video* (existing job + image →
   plain-speed lyric video), *Nightcore* (any song + image → sped-up edit, no lyrics).
@@ -88,8 +92,7 @@ installed app's own files. A few notes depending on how you installed:
 
 ### Optional tools, each in their own isolated environment
 
-Demucs, WhisperX, Z-Image (background images), Gemma 4 (AI-written song
-name/style/lyrics/image prompts, and language detection), and
+Demucs, WhisperX, Z-Image (background images), and
 [ACE-Step-1.5](https://github.com/ACE-Step/ACE-Step-1.5) (song generation) each install
 into their own `uv`-managed environment so their dependencies never conflict with each
 other. ACE-Step-1.5 in particular ships its own `pyproject.toml`/`uv.lock` (a full `git

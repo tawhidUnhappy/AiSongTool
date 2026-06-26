@@ -48,15 +48,12 @@ export interface CreateFlow {
   elapsedSeconds: number | null
 }
 
-/** Each of song name/style/lyrics can independently be written by the user
- * or by Gemma 4 — any combination, instead of one all-or-nothing mode.
- * `prompt` (the "describe the song" field) doubles as the literal style
- * caption when songStyleSource is 'manual', or as Gemma's seed description
- * when any of the three is 'gemma'. */
+/** Song name/style/lyrics are always written by the user — ACE-Step's own
+ * 5Hz LM already expands the style/lyrics into full generation metadata
+ * (bpm/keyscale/timesignature/CoT caption) internally as part of generation
+ * itself (Gemma 4 used to do an equivalent pre-step from a short
+ * description, removed in favor of relying on that). */
 export interface CreateGenOptions {
-  songNameSource: 'manual' | 'gemma'
-  songStyleSource: 'manual' | 'gemma'
-  lyricsSource: 'manual' | 'gemma'
   vocalLanguage: string
   instrumental: boolean
   seed: number | null
@@ -69,12 +66,6 @@ export interface CreateRunParams {
   genLyrics: string
   duration: number
   genOptions: CreateGenOptions
-  // A pasted reference song (lyrics and/or a description of one), used as
-  // pure style inspiration — when non-empty, overrides genOptions' three
-  // name/style/lyrics sources and writes a new, original song in the
-  // reference's style via Gemma's 'reference' mode instead of 'full'.
-  // Empty string = not using a reference.
-  referenceSong: string
   existingSong: string | null
   existingLyrics: string
   // What the subtitles/lyric-video are actually built from. 'auto': lyrics
@@ -97,12 +88,9 @@ export interface CreateRunParams {
   nightcore: boolean
   imageSource: 'auto' | 'pick'
   imagePath: string
-  // Only consulted when imageSource === 'auto' and genOptions.songStyleSource
-  // is 'manual' (when Gemma already wrote the style, it writes a matching
-  // image prompt in the same call) — 'song' reuses the song style/
-  // description prompt as before, 'manual' uses imagePromptText verbatim,
-  // 'gemma' asks Gemma 4 to write just an image prompt from imagePromptText.
-  imagePromptMode: 'song' | 'manual' | 'gemma'
+  // Only consulted when imageSource === 'auto' — 'song' reuses the song
+  // style/description prompt as-is, 'manual' uses imagePromptText verbatim.
+  imagePromptMode: 'song' | 'manual'
   imagePromptText: string
 }
 
@@ -112,22 +100,17 @@ export interface AppSettings {
   aceStepLmModel: string
   aceStepDitModel: string
   whisperModel: string
-  gemmaModel: string
   promptHistory: string[]
   promptHistoryEnabled: boolean
   imagePromptHistory: string[]
-  referenceSongHistory: string[]
 
   createMode: 'generate' | 'existing'
-  createSongNameSource: 'manual' | 'gemma'
-  createSongStyleSource: 'manual' | 'gemma'
-  createLyricsSource: 'manual' | 'gemma'
   createInstrumental: boolean
   createVocalLanguage: string
   createDuration: number
   createCaptionSource: 'auto' | 'transcript' | 'lyrics'
   createImageSource: 'auto' | 'pick'
-  createImagePromptMode: 'song' | 'manual' | 'gemma'
+  createImagePromptMode: 'song' | 'manual'
   createTemplate: 'sky' | 'syrex'
   createNightcore: boolean
 
@@ -153,7 +136,6 @@ export interface ModelOptions {
   aceStepLm: ModelOption[]
   aceStepDit: ModelOption[]
   whisper: ModelOption[]
-  gemma: ModelOption[]
   demucs: ModelOption[]
   demucsShifts: ModelOption[]
   vad: ModelOption[]
@@ -208,14 +190,11 @@ export interface NightcoreVideoResult {
 }
 
 export const STAGE_TEXT: Record<string, string> = {
-  writing: 'Writing song name, style, lyrics, and image prompt with Gemma 4...',
   gen_checking: 'Checking ACE-Step installation...',
   gen_starting_server:
     'Starting ACE-Step API server (first start can take a couple minutes while the model loads)...',
   gen_generating: 'Generating song with ACE-Step...',
   gen_closing_server: 'Song ready — shutting down the ACE-Step server to free the GPU...',
-  writing_image_prompt: 'Writing image prompt with Gemma 4...',
-  detecting_language: 'Detecting lyrics language with Gemma 4...',
   image_generating: 'Generating background image...',
   pipeline: 'Running pipeline: separating vocals, transcribing, aligning, building subtitles...',
   video: 'Rendering lyric video at normal speed...',

@@ -19,7 +19,7 @@ interface ToolCardProps {
 }
 
 /** Shared "optional tool" card — title/description/install button/status,
- * used for ACE-Step/Z-Image/Gemma so none of them duplicate the same
+ * used for ACE-Step/Z-Image/Syrex so none of them duplicate the same
  * button-click/error-handling boilerplate. Mirrors the Flet app's
  * `_tool_card.py`'s `tool_install_card`. */
 export function ToolCard({

@@ -16,9 +16,10 @@ import type {
 const api = {
   runSetup: (): Promise<number> => ipcRenderer.invoke('run-setup'),
   installTool: (name: string): Promise<number> => ipcRenderer.invoke('install-tool', name),
+  resetTool: (name: string): Promise<number> => ipcRenderer.invoke('reset-tool', name),
   launchAceStep: (): Promise<void> => ipcRenderer.invoke('launch-ace-step'),
+  isAceStepUiUp: (): Promise<boolean> => ipcRenderer.invoke('is-ace-step-ui-up'),
   launchZimageGui: (): Promise<void> => ipcRenderer.invoke('launch-zimage-gui'),
-  launchGemmaGui: (): Promise<void> => ipcRenderer.invoke('launch-gemma-gui'),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('open-external', url),
   stopGui: (name: string): Promise<void> => ipcRenderer.invoke('stop-gui', name),
   isGuiRunning: (name: string): Promise<boolean> => ipcRenderer.invoke('is-gui-running', name),
@@ -28,7 +29,7 @@ const api = {
   getTerminalHistory: (): Promise<string> => ipcRenderer.invoke('get-terminal-history'),
   isJobRunning: (): Promise<boolean> => ipcRenderer.invoke('is-job-running'),
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke('get-settings'),
-  setSetting: <K extends Exclude<keyof AppSettings, 'promptHistory' | 'imagePromptHistory' | 'referenceSongHistory'>>(
+  setSetting: <K extends Exclude<keyof AppSettings, 'promptHistory' | 'imagePromptHistory'>>(
     key: K,
     value: AppSettings[K]
   ): Promise<void> => ipcRenderer.invoke('set-setting', key, value),
@@ -43,10 +44,6 @@ const api = {
   removeImagePromptHistory: (prompt: string): Promise<void> =>
     ipcRenderer.invoke('remove-image-prompt-history', prompt),
   clearImagePromptHistory: (): Promise<void> => ipcRenderer.invoke('clear-image-prompt-history'),
-  addReferenceSongHistory: (text: string): Promise<void> => ipcRenderer.invoke('add-reference-song-history', text),
-  removeReferenceSongHistory: (text: string): Promise<void> =>
-    ipcRenderer.invoke('remove-reference-song-history', text),
-  clearReferenceSongHistory: (): Promise<void> => ipcRenderer.invoke('clear-reference-song-history'),
   onTerminalData: (callback: (chunk: string) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, chunk: string): void => callback(chunk)
     ipcRenderer.on('terminal:data', listener)

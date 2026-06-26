@@ -98,6 +98,37 @@ def install(log: LogFn = print, update: bool = False) -> Path:
     return dest
 
 
+def update_to_official(log: LogFn = print) -> None:
+    """"Reset to default" — discards ANY local modifications to the cloned
+    ACE-Step-1.5 repo (including ones made through its own Gradio UI, if it
+    persists settings as files inside the repo rather than in the browser)
+    and pulls the latest commit from the official upstream, leaving the repo
+    in exactly the state a fresh clone would be in.
+
+    `git clean -fd` (no `-x`) only removes untracked files NOT matched by
+    .gitignore — confirmed against ACE-Step-1.5's own .gitignore, which
+    excludes `checkpoints/`, `.venv`, and `.cache`, so this never touches the
+    already-downloaded multi-GB model weights or the synced env; only stray
+    edits to tracked files and any genuinely new untracked files get
+    discarded. Re-syncs afterward since the pulled commit may have changed
+    dependencies."""
+    if not is_cloned():
+        raise AceStepError("ACE-Step-1.5 isn't installed yet.")
+    from .toolrunner import find_uv
+    uv = find_uv()
+    dest = dest_dir()
+    _run(["git", "fetch", "--all", "--tags"], log, cwd=dest)
+    default_branch = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "origin/HEAD"],
+        cwd=str(dest), capture_output=True, text=True,
+    ).stdout.strip() or "origin/main"
+    _run(["git", "reset", "--hard", default_branch], log, cwd=dest)
+    _run(["git", "clean", "-fd"], log, cwd=dest)
+    log(f"$ uv sync (cwd={dest}) — re-syncing in case dependencies changed upstream")
+    _run([uv, "sync"], log, cwd=dest)
+    log("ACE-Step-1.5 reset to the latest official version.")
+
+
 def _run(cmd: list[str], log: LogFn, cwd: Path | None = None) -> None:
     log("$ " + " ".join(cmd))
     proc = subprocess.run(cmd, cwd=str(cwd) if cwd else None)

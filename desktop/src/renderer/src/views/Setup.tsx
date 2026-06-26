@@ -3,6 +3,10 @@ import type { AppSettings, DoctorStatus, ModelOptions } from '../../../shared/ty
 import { ToolCard } from '../components/ToolCard'
 import { GuiControl } from '../components/GuiControl'
 
+interface SetupProps {
+  onOpenAceStepTab: () => void
+}
+
 function ModelSelect({
   label,
   value,
@@ -39,12 +43,13 @@ function StatusRow({ label, ok, detail }: { label: string; ok: boolean; detail?:
   )
 }
 
-export function Setup(): React.JSX.Element {
+export function Setup({ onOpenAceStepTab }: SetupProps): React.JSX.Element {
   const [status, setStatus] = useState<DoctorStatus | null>(null)
   const [runningSetup, setRunningSetup] = useState(false)
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [modelOptions, setModelOptions] = useState<ModelOptions | null>(null)
   const [downloadingAceStep, setDownloadingAceStep] = useState(false)
+  const [resettingAceStep, setResettingAceStep] = useState(false)
   const [dataDir, setDataDir] = useState<string | null>(null)
   const [jobRunning, setJobRunning] = useState(false)
 
@@ -73,10 +78,7 @@ export function Setup(): React.JSX.Element {
   }, [])
 
   const updateSetting = async <
-    K extends Exclude<
-      keyof AppSettings,
-      'promptHistory' | 'promptHistoryEnabled' | 'imagePromptHistory' | 'referenceSongHistory'
-    >
+    K extends Exclude<keyof AppSettings, 'promptHistory' | 'promptHistoryEnabled' | 'imagePromptHistory'>
   >(
     key: K,
     value: AppSettings[K]
@@ -109,6 +111,16 @@ export function Setup(): React.JSX.Element {
     const code = await window.api.installTool(name)
     await refresh()
     return code
+  }
+
+  const resetAceStep = async (): Promise<void> => {
+    setResettingAceStep(true)
+    try {
+      await window.api.resetTool('ace-step')
+    } finally {
+      setResettingAceStep(false)
+      refresh()
+    }
   }
 
   return (
@@ -197,12 +209,18 @@ export function Setup(): React.JSX.Element {
                 </button>
               </>
             )}
-            <GuiControl
-              name="ace-step"
-              label="ACE-Step UI"
-              disabled={!status?.ace_step.synced}
-              onLaunch={() => window.api.launchAceStep()}
-            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button onClick={onOpenAceStepTab} disabled={!status?.ace_step.synced}>
+                Open ACE-Step UI
+              </button>
+              <button
+                onClick={resetAceStep}
+                disabled={resettingAceStep || jobRunning || !status?.ace_step.cloned}
+                title="Discards any local changes to the cloned ACE-Step repo and pulls the latest official version — does not touch already-downloaded model checkpoints."
+              >
+                {resettingAceStep ? 'Resetting…' : 'Reset to official latest'}
+              </button>
+            </div>
           </div>
         }
       />
@@ -226,48 +244,6 @@ export function Setup(): React.JSX.Element {
             disabled={!(status?.envs['zimage-uv']?.provisioned && status.envs['zimage-uv'].venv_python)}
             onLaunch={() => window.api.launchZimageGui()}
           />
-        }
-      />
-
-      <ToolCard
-        title="Optional: Gemma 4 (prompt writing + chat)"
-        description="An isolated `uv` env — lets the Create flow turn one short description into a song
-          style caption, full lyrics, and an image prompt. Its Gradio UI also has a normal multi-turn
-          Chat tab for using Gemma 4 like any other chatbot."
-        installLabel="Install Gemma 4"
-        onInstall={() => installAndRefresh('gemma')}
-        blockedByOtherJob={jobRunning}
-        statusText={
-          status?.envs['gemma-uv']?.provisioned && status.envs['gemma-uv'].venv_python
-            ? 'Installed.'
-            : 'Not installed yet.'
-        }
-        extra={
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {settings && modelOptions && (
-              <ModelSelect
-                label="Gemma model"
-                value={settings.gemmaModel}
-                options={modelOptions.gemma}
-                onChange={(v) => updateSetting('gemmaModel', v)}
-              />
-            )}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <GuiControl
-                name="gemma"
-                label="Gemma 4 UI (Gradio)"
-                disabled={!(status?.envs['gemma-uv']?.provisioned && status.envs['gemma-uv'].venv_python)}
-                onLaunch={() => window.api.launchGemmaGui()}
-              />
-              <button onClick={() => window.api.openExternal('http://127.0.0.1:7862')}>
-                Open in browser ↗
-              </button>
-            </div>
-            <span style={{ fontSize: 12, color: 'var(--ev-c-text-2)' }}>
-              The first model load (after clicking "Open Gemma 4 UI") can take a while — once it's
-              ready, the link above opens the UI, which has both the writer form and a Chat tab.
-            </span>
-          </div>
         }
       />
 

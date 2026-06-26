@@ -11,7 +11,6 @@ import { app } from 'electron'
 import { shortId } from './short-id'
 import * as aceStep from './tools/ace-step'
 import * as aceStepApi from './tools/ace-step-api'
-import * as gemmaWriter from './tools/gemma-writer'
 import * as zimage from './tools/zimage'
 import * as syrex from './tools/syrex'
 import { buildNightcoreAudioCmd, nightcoreVideoInPlace, DEFAULT_SPEED } from './tools/nightcore'
@@ -82,87 +81,10 @@ export function getOutputDir(): string {
   return outputDir
 }
 
-/** One-shot Gemma 4 generation — a worker process loads the model, writes
- * one JSON result, exits. Failure here aborts the whole run (unlike a bad
- * image, a missing song style/lyrics means there's nothing for ACE-Step to
- * generate from). Called once whenever ANY of song name/style/lyrics is set
- * to 'gemma' — the caller picks out only the fields it actually asked for,
- * discarding the rest, rather than this function only writing a subset.
- * `referenceSong`, when non-empty, switches to Gemma's 'reference' mode —
- * write a new, original song inspired by the pasted reference's style,
- * not a copy of it (see gemma_write.py's _REFERENCE_INSTRUCTIONS). */
-async function writeWithGemma(
-  prompt: string,
-  onData: OnData,
-  referenceSong: string = '',
-  duration?: number
-): Promise<{ song_name: string; song_style: string; lyrics: string; image_prompt: string } | null> {
-  flow.stage = 'writing'
-  flow.stageStartedAt = Date.now()
-  if (!gemmaWriter.isSynced()) {
-    flow.errorMessage = 'Gemma 4 isn\'t installed yet. Go to the Setup view and click "Install Gemma 4" first.'
-    onData(flow.errorMessage + '\r\n')
-    flow.stage = 'error'
-    return null
-  }
-
-  const outJson = path.join(jobsDir(), '_gemma', shortId(), 'result.json')
-  let cmd: string[]
-  try {
-    cmd = referenceSong.trim()
-      ? gemmaWriter.buildWriteFromReferenceCmd(referenceSong, outJson, duration)
-      : gemmaWriter.buildWriteCmd(prompt, outJson, duration)
-  } catch (exc) {
-    flow.errorMessage = String((exc as Error).message)
-    onData(flow.errorMessage + '\r\n')
-    flow.stage = 'error'
-    return null
-  }
-
-  const code = await runBlocking(cmd, gemmaWriter.destDir(), onData)
-  if (code !== 0) {
-    flow.errorMessage = 'Gemma 4 failed to write the song name/style/lyrics/image prompt — check the Terminal pane.'
-    flow.stage = 'error'
-    return null
-  }
-
-  try {
-    return gemmaWriter.readResult(outJson)
-  } catch (exc) {
-    flow.errorMessage = String((exc as Error).message)
-    flow.stage = 'error'
-    return null
-  }
-}
-
-/** Resolves vocal_language when left on "Auto" — asks Gemma 4 to detect it
- * from the literal lyrics text instead of leaving it blank for ACE-Step to
- * guess from the caption alone. Falls back to English on any failure
- * (missing Gemma 4, no lyrics text to
- * detect from, etc.) rather than aborting the run. */
-async function detectLanguage(lyrics: string, onData: OnData): Promise<string> {
-  if (!lyrics.trim() || !gemmaWriter.isSynced()) return 'en'
-  flow.stage = 'detecting_language'
-  flow.stageStartedAt = Date.now()
-  const outJson = path.join(jobsDir(), '_gemma_lang', shortId(), 'result.json')
-  try {
-    const cmd = gemmaWriter.buildDetectLanguageCmd(lyrics, outJson)
-    const code = await runBlocking(cmd, gemmaWriter.destDir(), onData)
-    if (code !== 0) {
-      onData("Gemma 4 failed to detect the lyrics' language — defaulting to English.\r\n")
-      return 'en'
-    }
-    return gemmaWriter.readDetectLanguageResult(outJson)
-  } catch (exc) {
-    onData(String((exc as Error).message) + '\r\n')
-    return 'en'
-  }
-}
-
 /** Runs ACE-Step end to end: install check -> start its API server ->
  * generate -> explicitly shut the server down again (frees the GPU before
  * Demucs/WhisperX run next). `vocalLanguage` and `songName` are passed in
- * already resolved (manual text, or Gemma 4's output) by the caller. */
+ * already resolved (literal manual text) by the caller. */
 async function generateSong(
   prompt: string,
   lyrics: string,
@@ -281,41 +203,15 @@ async function generateImage(prompt: string, onData: OnData, literal: boolean = 
   return outPath
 }
 
-/** Resolves what prompt to hand to Z-Image for the background image, when
- * not already covered by the "let Gemma 4 write everything" path above —
- * either the song prompt as-is, literal manual text, or Gemma 4 asked to
- * write just an image prompt (no song style/lyrics). Falls back to
- * `fallbackPrompt` on any failure rather than aborting the whole run over a
- * background image. */
-async function resolveImagePrompt(
+/** Resolves what prompt to hand to Z-Image for the background image —
+ * either the song prompt as-is, or literal manual text. */
+function resolveImagePrompt(
   fallbackPrompt: string,
   imagePromptMode: RunAllParams['imagePromptMode'],
-  imagePromptText: string,
-  onData: OnData
-): Promise<string> {
+  imagePromptText: string
+): string {
   if (imagePromptMode === 'manual') {
     return imagePromptText.trim() || fallbackPrompt
-  }
-  if (imagePromptMode === 'gemma') {
-    flow.stage = 'writing_image_prompt'
-    flow.stageStartedAt = Date.now()
-    if (!gemmaWriter.isSynced()) {
-      onData("Gemma 4 isn't installed — using the song prompt for the image instead.\r\n")
-      return fallbackPrompt
-    }
-    const outJson = path.join(jobsDir(), '_gemma_image', shortId(), 'result.json')
-    try {
-      const cmd = gemmaWriter.buildWriteImagePromptCmd(imagePromptText.trim() || fallbackPrompt, outJson)
-      const code = await runBlocking(cmd, gemmaWriter.destDir(), onData)
-      if (code !== 0) {
-        onData('Gemma 4 failed to write an image prompt — using the song prompt instead.\r\n')
-        return fallbackPrompt
-      }
-      return gemmaWriter.readImagePromptResult(outJson)
-    } catch (exc) {
-      onData(String((exc as Error).message) + '\r\n')
-      return fallbackPrompt
-    }
   }
   return fallbackPrompt // 'song'
 }
@@ -339,59 +235,22 @@ export async function runAll(params: RunAllParams, onData: OnData): Promise<void
       nightcore,
       imageSource,
       imagePromptMode,
-      imagePromptText,
-      referenceSong
+      imagePromptText
     } = params
     const genOptions = params.genOptions
-    const useReference = referenceSong.trim().length > 0
     let songPath: string | null
     let lyricsText: string
 
     if (mode === 'generate') {
-      // Each of song name/style/lyrics is independently 'manual' or
-      // 'gemma' — call Gemma 4 at most once if ANY of them need it, then
-      // pick out only the fields actually asked for. A pasted reference
-      // song always writes all three together (it's one inspired-by call),
-      // overriding the per-field source pickers.
-      const needsGemma =
-        useReference ||
-        genOptions.songNameSource === 'gemma' ||
-        genOptions.songStyleSource === 'gemma' ||
-        (!genOptions.instrumental && genOptions.lyricsSource === 'gemma')
-      let written: Awaited<ReturnType<typeof writeWithGemma>> = null
-      if (needsGemma) {
-        written = await writeWithGemma(prompt, onData, useReference ? referenceSong : '', duration)
-        if (written === null) return // flow.errorMessage/stage already set
-      }
-
-      if ((useReference || genOptions.songNameSource === 'gemma') && written) songName = written.song_name
-      if ((useReference || genOptions.songStyleSource === 'gemma') && written) prompt = written.song_style
-      if (!genOptions.instrumental && (useReference || genOptions.lyricsSource === 'gemma') && written) {
-        lyrics = written.lyrics
-        // Gemma was already told this exact `duration` (see the
-        // writeWithGemma call above) and sizes its lyrics for it, so the
-        // user's selected duration stays in force here too instead of being
-        // overridden to -1/auto-fit — previously, before Gemma had any
-        // duration awareness at all, -1 was the only way to get audio
-        // length that didn't fight an arbitrarily-sized lyrics block; now
-        // that the lyrics are already roughly sized to match, asking
-        // ACE-Step for the literal target duration keeps the final song
-        // actually matching what was selected, with Gemma's lyrics doing
-        // most of the work of making that not require much pacing
-        // compression/stretching.
-      }
-
-      let vocalLanguage = genOptions.vocalLanguage
-      if (vocalLanguage === 'unknown' && !genOptions.instrumental) {
-        vocalLanguage = await detectLanguage(lyrics, onData)
-      }
-
+      // vocalLanguage left on "Auto" (genOptions.vocalLanguage === 'unknown')
+      // is passed straight through — ace-step-api.ts's generateSong() itself
+      // defaults that to 'en'.
       const result = await generateSong(
         prompt,
         lyrics,
         duration,
         songName,
-        vocalLanguage,
+        genOptions.vocalLanguage,
         genOptions.instrumental,
         genOptions.seed,
         onData
@@ -403,17 +262,13 @@ export async function runAll(params: RunAllParams, onData: OnData): Promise<void
       if (imageSource === 'auto') {
         if (template === 'sky') {
           // The "Minimalistic Sky" template hardcodes the image-generation
-          // prompt outright — every other source (song style, Gemma's own
-          // image prompt, manual text) is ignored so this template's look
-          // stays exactly the same regardless of the song.
+          // prompt outright — every other source (song style, manual text)
+          // is ignored so this template's look stays exactly the same
+          // regardless of the song.
           const generatedImage = await generateImage(SKY_TEMPLATE_PROMPT, onData, true)
           if (generatedImage !== null) imagePath = generatedImage
         } else {
-          // 'song' mode reuses Gemma's image prompt if it already ran for
-          // name/style/lyrics (no point asking twice), else the literal
-          // style prompt.
-          const songPromptForImage = written?.image_prompt ?? prompt
-          const imagePrompt = await resolveImagePrompt(songPromptForImage, imagePromptMode, imagePromptText, onData)
+          const imagePrompt = resolveImagePrompt(prompt, imagePromptMode, imagePromptText)
           const generatedImage = await generateImage(imagePrompt, onData)
           if (generatedImage !== null) imagePath = generatedImage
         }

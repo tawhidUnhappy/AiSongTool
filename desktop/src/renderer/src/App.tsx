@@ -3,15 +3,17 @@ import { Terminal } from './components/Terminal'
 import { Setup } from './views/Setup'
 import { Create } from './views/Create'
 import { Tools } from './views/Tools'
+import { AceStepUI } from './views/AceStepUI'
 
 const TABS = [
   ['setup', 'Setup'],
   ['create', 'Create'],
-  ['tools', 'Tools']
+  ['tools', 'Tools'],
+  ['ace-step', 'ACE-Step UI']
 ] as const
 
 function App(): React.JSX.Element {
-  const [tab, setTab] = useState<'setup' | 'create' | 'tools'>('setup')
+  const [tab, setTab] = useState<'setup' | 'create' | 'tools' | 'ace-step'>('setup')
 
   return (
     <div
@@ -42,13 +44,16 @@ function App(): React.JSX.Element {
             the same bug this rewrite's Flet predecessor had to fix by
             building views once and toggling visibility, not rebuilding. */}
         <div style={{ display: tab === 'setup' ? 'block' : 'none' }}>
-          <Setup />
+          <Setup onOpenAceStepTab={() => setTab('ace-step')} />
         </div>
         <div style={{ display: tab === 'create' ? 'block' : 'none' }}>
           <Create />
         </div>
         <div style={{ display: tab === 'tools' ? 'block' : 'none' }}>
           <Tools />
+        </div>
+        <div style={{ display: tab === 'ace-step' ? 'block' : 'none', height: '100%' }}>
+          <AceStepUI />
         </div>
       </div>
 
