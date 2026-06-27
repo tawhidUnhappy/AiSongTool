@@ -60,6 +60,9 @@ export interface GenerateSampleSongOptions {
    * the caller never has to supply any of that directly. */
   description: string
   model: string
+  /** Language code (e.g. "en", "ja") to force, or '' to let ACE-Step's own
+   * LM detect it from the description (use_cot_language, on by default). */
+  vocalLanguage?: string
   outDir: string
   log?: LogFn
   host?: string
@@ -100,6 +103,7 @@ export async function generateSampleSong(opts: GenerateSampleSongOptions): Promi
   const {
     description,
     model,
+    vocalLanguage,
     outDir,
     log = console.log,
     host = DEFAULT_HOST,
@@ -110,13 +114,14 @@ export async function generateSampleSong(opts: GenerateSampleSongOptions): Promi
   } = opts
 
   const base = baseUrl(host, port)
-  const taskBody = {
+  const taskBody: Record<string, unknown> = {
     sample_mode: true,
     sample_query: description,
     thinking: true,
     batch_size: 1,
     model
   }
+  if (vocalLanguage) taskBody.vocal_language = vocalLanguage
 
   log(`POST ${base}/release_task ${JSON.stringify(taskBody)}\r\n`)
   try {

@@ -87,6 +87,7 @@ export function getOutputDir(): string {
  * server down again (frees the GPU before Demucs/WhisperX run next). */
 async function generateSong(
   description: string,
+  vocalLanguage: string,
   onData: OnData
 ): Promise<{ songPath: string | null; lyricsText: string }> {
   debugLog('generateSong: entered')
@@ -122,6 +123,7 @@ async function generateSong(
     const sample = await aceStepApi.generateSampleSong({
       description,
       model: settings.aceStepDitModel,
+      vocalLanguage,
       outDir: genOutDir,
       log: onData,
       onProgress: (text) => (flow.genProgressText = text)
@@ -207,6 +209,7 @@ export async function runAll(params: RunAllParams, onData: OnData): Promise<void
     let { prompt, songName, imagePath } = params
     const {
       mode,
+      vocalLanguage,
       existingSong,
       existingLyrics,
       captionSource,
@@ -219,7 +222,7 @@ export async function runAll(params: RunAllParams, onData: OnData): Promise<void
     let lyricsText: string
 
     if (mode === 'generate') {
-      const result = await generateSong(prompt, onData)
+      const result = await generateSong(prompt, vocalLanguage, onData)
       songPath = result.songPath
       lyricsText = result.lyricsText
       if (songPath !== null) {

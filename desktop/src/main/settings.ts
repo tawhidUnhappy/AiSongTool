@@ -14,10 +14,11 @@ export interface AppSettings {
   imagePromptHistory: string[]
 
   // Create view — every dropdown/checkbox/radio remembered across restarts,
-  // so reopening the app doesn't reset them to defaults. Song generation
-  // itself happens in ACE-Step's own embedded Gradio UI, which keeps its
-  // own state — nothing about it is persisted here.
+  // so reopening the app doesn't reset them to defaults.
   createMode: 'generate' | 'existing'
+  // '' = let ACE-Step's own LM detect the vocal language from the
+  // description (use_cot_language); otherwise a forced language code.
+  createVocalLanguage: string
   createCaptionSource: 'auto' | 'transcript' | 'lyrics'
   createImageSource: 'auto' | 'pick'
   // Video template — 'sky' is the original static-image + centered Edo-font
@@ -60,6 +61,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   imagePromptHistory: [],
 
   createMode: 'generate',
+  createVocalLanguage: '',
   // Defaults to the WhisperX-transcript path (same as the Tools view's
   // "Transcribe to .srt", which always uses this when no lyrics are
   // pasted) rather than aligning literal lyrics text against the audio —

@@ -4,6 +4,32 @@ import { STAGE_TEXT } from '../../../shared/types'
 import templateSkyPreview from '../assets/template_sky.jpg'
 import templateSyrexPreview from '../assets/template_syrex.jpg'
 
+// Mirrors the language codes ACE-Step's own server recognizes (see its
+// `acestep/api/server_utils.py`'s `language_mapping`) — '' lets its LM
+// detect the language from the description itself (use_cot_language).
+const VOCAL_LANGUAGES: [string, string][] = [
+  ['', 'Auto-detect'],
+  ['en', 'English'],
+  ['zh', 'Chinese'],
+  ['ja', 'Japanese'],
+  ['ko', 'Korean'],
+  ['es', 'Spanish'],
+  ['fr', 'French'],
+  ['de', 'German'],
+  ['it', 'Italian'],
+  ['pt', 'Portuguese'],
+  ['ru', 'Russian'],
+  ['bn', 'Bengali'],
+  ['hi', 'Hindi'],
+  ['ar', 'Arabic'],
+  ['th', 'Thai'],
+  ['vi', 'Vietnamese'],
+  ['id', 'Indonesian'],
+  ['tr', 'Turkish'],
+  ['nl', 'Dutch'],
+  ['pl', 'Polish']
+]
+
 function fmtDuration(totalSeconds: number): string {
   const s = Math.floor(totalSeconds)
   return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
@@ -55,6 +81,8 @@ export function Create(): React.JSX.Element {
   // its 5Hz LM (see create-pipeline.ts's generateSong()). Doubles as the
   // background-image prompt's fallback below.
   const [songDescription, setSongDescription] = useState('')
+  // '' = let ACE-Step's own LM detect the language from the description.
+  const [vocalLanguage, setVocalLanguage] = useState('')
 
   const [promptHistoryEnabled, setPromptHistoryEnabled] = useState(true)
   const [imagePromptHistory, setImagePromptHistory] = useState<string[]>([])
@@ -70,6 +98,7 @@ export function Create(): React.JSX.Element {
       setPromptHistoryEnabled(s.promptHistoryEnabled)
       setImagePromptHistory(s.imagePromptHistory)
       setMode(s.createMode)
+      setVocalLanguage(s.createVocalLanguage)
       setCaptionSource(s.createCaptionSource)
       setTemplate(s.createTemplate)
       setNightcore(s.createNightcore)
@@ -81,6 +110,9 @@ export function Create(): React.JSX.Element {
   useEffect(() => {
     if (loadedSettings) window.api.setSetting('createMode', mode)
   }, [loadedSettings, mode])
+  useEffect(() => {
+    if (loadedSettings) window.api.setSetting('createVocalLanguage', vocalLanguage)
+  }, [loadedSettings, vocalLanguage])
   useEffect(() => {
     if (loadedSettings) window.api.setSetting('createCaptionSource', captionSource)
   }, [loadedSettings, captionSource])
@@ -204,6 +236,7 @@ export function Create(): React.JSX.Element {
     await window.api.startCreateRun({
       mode,
       prompt: mode === 'generate' ? songDescription.trim() : '',
+      vocalLanguage: mode === 'generate' ? vocalLanguage : '',
       songName: songName.trim(),
       existingSong: existingSongPath,
       existingLyrics: existingLyrics.trim(),
@@ -303,6 +336,18 @@ export function Create(): React.JSX.Element {
               ACE-Step's sample mode generates the caption, lyrics, and everything else from this description on
               its own — no other input needed.
             </span>
+            <div style={{ ...row, marginTop: 4 }}>
+              <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                Lyrics language
+                <select value={vocalLanguage} onChange={(e) => setVocalLanguage(e.target.value)}>
+                  {VOCAL_LANGUAGES.map(([code, label]) => (
+                    <option key={code} value={code}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
         ) : (
           <>

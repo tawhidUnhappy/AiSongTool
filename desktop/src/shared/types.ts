@@ -56,6 +56,10 @@ export interface CreateRunParams {
   // the "song's own description" fallback for the auto background-image
   // prompt below. 'existing' mode: empty.
   prompt: string
+  // 'generate' mode only — a language code (e.g. "en", "ja") to force the
+  // generated lyrics' language, or '' to let ACE-Step's own LM detect it
+  // from the description (use_cot_language, on by default).
+  vocalLanguage: string
   songName: string
   existingSong: string | null
   existingLyrics: string
@@ -94,9 +98,9 @@ export interface AppSettings {
   imagePromptHistory: string[]
 
   createMode: 'generate' | 'existing'
+  createVocalLanguage: string
   createCaptionSource: 'auto' | 'transcript' | 'lyrics'
   createImageSource: 'auto' | 'pick'
-  createImagePromptMode: 'song' | 'manual'
   createTemplate: 'sky' | 'syrex'
   createNightcore: boolean
 
