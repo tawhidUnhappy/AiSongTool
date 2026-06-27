@@ -36,7 +36,7 @@ CONSTANTS_RELATIVE_PATH = "acestep/constants.py"
 # code change. The field-name -> constant-name association itself is the
 # only hand-maintained part, and it's small and rarely-changing (renaming
 # either side is a one-line fix here, not a recurring maintenance burden).
-FIELD_ENUM_CONSTANTS = {"vocal_language": "VALID_LANGUAGES"}
+FIELD_ENUM_CONSTANTS = {"vocal_language": "VALID_LANGUAGES", "task_type": "TASK_TYPES"}
 
 
 class SchemaExtractionError(RuntimeError):

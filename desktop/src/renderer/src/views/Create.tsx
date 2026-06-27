@@ -5,53 +5,22 @@ import templateSkyPreview from '../assets/template_sky.jpg'
 import templateSyrexPreview from '../assets/template_syrex.jpg'
 import SchemaForm from '../components/SchemaForm'
 
-// `task_type`/`model`/`batch_size` are driven by this app itself (always
-// text2music, the Setup view's DiT model picker, one song per run) rather
-// than exposed here, to avoid a second control for the same setting. Every
-// other real ACE-Step field — including prompt/lyrics/audio_duration/
-// vocal_language/seed — renders straight from the live schema below, with
-// no separate hand-built widget of our own.
-const HANDLED_ELSEWHERE = new Set(['task_type', 'model', 'batch_size'])
+// `model`/`batch_size` are still driven by this app itself (the Setup
+// view's DiT model picker, one song per run) rather than exposed here, to
+// avoid a second control for the same setting. Every other real ACE-Step
+// field — task_type (text2music/repaint/cover/extract/lego/complete),
+// sample-mode auto-captioning, prompt/lyrics/audio_duration/vocal_language/
+// seed, repaint/cover params, the lot — renders straight from the live
+// schema below. Nothing here is hidden by a "this looks irrelevant" guess;
+// ACE-Step's own request model is the only judge of what's shown.
+const HANDLED_ELSEWHERE = new Set(['model', 'batch_size'])
 
-// ACE-Step's request model also covers workflow modes this Create flow
-// never uses — sample-mode auto-captioning (writes its own caption/lyrics
-// from `sample_query`, directly conflicting with the manual Song
-// style/Lyrics boxes above), and repaint/cover/audio-editing/extraction,
-// which only apply to task types other than the plain text2music this flow
-// always sends. Showing them here would just be confusing, unused noise —
-// excluded by workflow concept (small and stable) rather than by hand-
-// picking individual fields (which would defeat staying in sync with
-// upstream automatically).
 // ACE-Step's own default for `audio_duration` is `None` ("let the model
 // pick"), which isn't a usable starting point for a slider/number input in
 // this app — overridden to a sensible starting value (long enough for a
 // full verse/chorus/verse/chorus/bridge structure) only as the *initial*
 // value the user sees, not a hardcoded field definition.
 const INITIAL_VALUE_OVERRIDES: Record<string, unknown> = { audio_duration: 200 }
-
-const IRRELEVANT_WORKFLOW_FIELDS = new Set([
-  'global_caption',
-  'sample_mode',
-  'sample_query',
-  'use_format',
-  'reference_audio_path',
-  'src_audio_path',
-  'repainting_start',
-  'repainting_end',
-  'audio_cover_strength',
-  'cover_noise_strength',
-  'chunk_mask_mode',
-  'repaint_latent_crossfade_frames',
-  'repaint_wav_crossfade_sec',
-  'repaint_mode',
-  'repaint_strength',
-  'analysis_only',
-  'full_analysis_only',
-  'extract_codes_only',
-  'audio_code_string',
-  'track_name',
-  'track_classes'
-])
 
 function fmtDuration(totalSeconds: number): string {
   const s = Math.floor(totalSeconds)
@@ -89,7 +58,7 @@ export function Create(): React.JSX.Element {
     if (mode !== 'generate') return
     window.api.getAceStepSchema().then((schema) => {
       if (!schema) return
-      const fields = schema.fields.filter((f) => !HANDLED_ELSEWHERE.has(f.name) && !IRRELEVANT_WORKFLOW_FIELDS.has(f.name))
+      const fields = schema.fields.filter((f) => !HANDLED_ELSEWHERE.has(f.name))
       setGenFields(fields)
       setGenValues((prev) => {
         const next = { ...prev }
@@ -252,9 +221,14 @@ export function Create(): React.JSX.Element {
 
   const run = async (): Promise<void> => {
     if (running) return
+    // `sample_mode` is ACE-Step's own "write a short description, let the LM
+    // write the caption/lyrics" path — a song described that way leaves
+    // `prompt` blank and uses `sample_query` instead, so either counts as
+    // "described".
     const genPrompt = String(genValues.prompt ?? '').trim()
-    if (mode === 'generate' && !genPrompt) {
-      setStatusText('Describe the song you want first.')
+    const sampleQuery = String(genValues.sample_query ?? '').trim()
+    if (mode === 'generate' && !genPrompt && !sampleQuery) {
+      setStatusText('Describe the song you want first (Song style, or Sample query if using sample mode).')
       return
     }
     if (mode === 'existing' && !existingSongPath) {
@@ -279,7 +253,12 @@ export function Create(): React.JSX.Element {
 
     await window.api.startCreateRun({
       mode,
-      prompt: genPrompt,
+      // Falls back to sample_query so the rest of the pipeline (background
+      // image prompt reuse, library captioning) still has *something*
+      // descriptive when sample mode is what actually described the song —
+      // ACE-Step itself still gets the real, distinct sample_query field
+      // via genOptions.advancedFields below.
+      prompt: genPrompt || sampleQuery,
       songName: songName.trim(),
       genLyrics: String(genValues.lyrics ?? '').trim(),
       duration: Number(genValues.audio_duration ?? 200),
