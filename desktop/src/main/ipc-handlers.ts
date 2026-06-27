@@ -19,6 +19,7 @@ import {
 import { mainVenvPython, dataDir } from './paths'
 import { ensureMainEnv } from './bootstrap'
 import { recordTerminalChunk, getTerminalHistory } from './terminal-history'
+import { importAceStepUiOutputs, listAudioLibrary } from './library'
 import * as aceStep from './tools/ace-step'
 import * as zimage from './tools/zimage'
 import * as createPipeline from './create-pipeline'
@@ -291,6 +292,17 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('create:get-output-dir', () => createPipeline.getOutputDir())
+
+  // Generated-songs library (output/audio/) — also sweeps in any new song
+  // from ACE-Step's own Gradio UI (its `gradio_outputs/` folder, inside the
+  // cloned ace-step repo) before listing, so the Create view's "existing
+  // song" card picker picks up songs made there with no extra import step
+  // (see library.ts's importAceStepUiOutputs).
+  ipcMain.handle('create:list-audio-library', () => {
+    const outputDir = createPipeline.getOutputDir()
+    importAceStepUiOutputs(outputDir)
+    return listAudioLibrary(outputDir)
+  })
 
   // ---- Tools (standalone single-tool utilities) ---------------------------
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CreateFlow } from '../../../shared/types'
+import type { CreateFlow, LibrarySong } from '../../../shared/types'
 import { STAGE_TEXT } from '../../../shared/types'
 import templateSkyPreview from '../assets/template_sky.jpg'
 import templateSyrexPreview from '../assets/template_syrex.jpg'
@@ -36,6 +36,21 @@ export function Create(): React.JSX.Element {
   const [existingSongPath, setExistingSongPath] = useState<string | null>(null)
   const [existingLyrics, setExistingLyrics] = useState('')
   const [captionSource, setCaptionSource] = useState<'auto' | 'transcript' | 'lyrics'>('transcript')
+  const [librarySongs, setLibrarySongs] = useState<LibrarySong[]>([])
+
+  // Auto-detects new songs (the Create flow's own generations, and anything
+  // made in the separate "ACE-Step UI" tab — see library.ts's
+  // importAceStepUiOutputs) while the card picker below is actually visible;
+  // no point polling a directory listing nobody's looking at.
+  useEffect(() => {
+    if (mode !== 'existing') return
+    const poll = (): void => {
+      window.api.listAudioLibrary().then(setLibrarySongs)
+    }
+    poll()
+    const interval = setInterval(poll, 2000)
+    return () => clearInterval(interval)
+  }, [mode])
 
   const [template, setTemplate] = useState<'sky' | 'syrex'>('sky')
   const [nightcore, setNightcore] = useState(true)
@@ -184,6 +199,11 @@ export function Create(): React.JSX.Element {
     if (p) setExistingSongPath(p)
   }
 
+  const useLibrarySong = (song: LibrarySong): void => {
+    setExistingSongPath(song.path)
+    if (song.lyrics && !existingLyrics.trim()) setExistingLyrics(song.lyrics)
+  }
+
   const pickImage = async (): Promise<void> => {
     const p = await window.api.pickImageFile()
     if (p) setImagePath(p)
@@ -271,7 +291,11 @@ export function Create(): React.JSX.Element {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto' }}>
       <Card title="Output folder">
         <button onClick={pickOutputDir}>Choose folder</button>
-        <div style={muted}>{outputDir ? `Saving final files to: ${outputDir}` : 'Loading…'}</div>
+        <div style={muted}>
+          {outputDir
+            ? `Saving to: ${outputDir} (audio/, images/, and videos/ subfolders)`
+            : 'Loading…'}
+        </div>
       </Card>
 
       <Card title="1. Song">
@@ -406,8 +430,16 @@ export function Create(): React.JSX.Element {
         ) : (
           <>
             <hr style={hr} />
+            {librarySongs.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>
+                  Previously generated songs — pick one to use as this run's input
+                </span>
+                <SongLibraryGrid songs={librarySongs} selected={existingSongPath} onPick={useLibrarySong} />
+              </div>
+            )}
             <div style={row}>
-              <button onClick={pickSong}>Pick song file…</button>
+              <button onClick={pickSong}>Pick song file from disk…</button>
               <span style={muted}>{existingSongPath ? `Using: ${path_basename(existingSongPath)}` : 'No song selected.'}</span>
             </div>
             <textarea
@@ -594,6 +626,73 @@ function Radio({
           <input type="radio" name={name} checked={value === v} onChange={() => onChange(v)} /> {label}
         </label>
       ))}
+    </div>
+  )
+}
+
+function fmtLibraryDate(mtimeMs: number): string {
+  return new Date(mtimeMs).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  })
+}
+
+/** Card grid for picking a previously-generated song (library.ts's
+ * `output/audio/`) as this run's input, instead of only a raw file-picker
+ * dialog — each card shows whatever the song's own caption/lyrics metadata
+ * has (from either the Create flow's own generation, or one made in the
+ * separate "ACE-Step UI" tab) so songs are recognizable without having to
+ * remember filenames. */
+function SongLibraryGrid({
+  songs,
+  selected,
+  onPick
+}: {
+  songs: LibrarySong[]
+  selected: string | null
+  onPick: (song: LibrarySong) => void
+}): React.JSX.Element {
+  return (
+    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', maxHeight: 280, overflowY: 'auto' }}>
+      {songs.map((song) => {
+        const isSelected = song.path === selected
+        return (
+          <div
+            key={song.path}
+            onClick={() => onPick(song)}
+            style={{
+              flex: '1 1 220px',
+              minWidth: 200,
+              maxWidth: 260,
+              cursor: 'pointer',
+              border: isSelected ? '2px solid #6ab0ff' : '1px solid #333',
+              borderRadius: 6,
+              padding: 10,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+              background: isSelected ? 'rgba(106, 176, 255, 0.08)' : 'transparent'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+              <span style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {song.name.replace(/\.[^.]+$/, '')}
+              </span>
+              {isSelected && <span style={{ fontSize: 11, color: '#6ab0ff', flexShrink: 0 }}>✓ selected</span>}
+            </div>
+            <span style={muted}>
+              {fmtLibraryDate(song.mtimeMs)} — {song.sizeMb.toFixed(1)}MB
+            </span>
+            {song.caption && (
+              <span style={{ ...muted, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                {song.caption}
+              </span>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

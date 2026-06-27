@@ -189,6 +189,17 @@ export interface NightcoreVideoResult {
   videoPath: string | null
 }
 
+/** A previously-generated song available to reuse as a fresh input —
+ * mirrors `desktop/src/main/library.ts`'s `LibrarySong`. */
+export interface LibrarySong {
+  name: string
+  path: string
+  mtimeMs: number
+  sizeMb: number
+  caption: string | null
+  lyrics: string | null
+}
+
 export const STAGE_TEXT: Record<string, string> = {
   gen_checking: 'Checking ACE-Step installation...',
   gen_starting_server:

@@ -5,6 +5,7 @@ import type {
   CreateFlow,
   CreateRunParams,
   DoctorStatus,
+  LibrarySong,
   ModelOptions,
   NightcoreVideoParams,
   NightcoreVideoResult,
@@ -65,6 +66,7 @@ const api = {
     ipcRenderer.invoke('create:list-subtitle-outputs', jobDir),
   saveArtifact: (srcPath: string, suggestedName: string): Promise<string> =>
     ipcRenderer.invoke('create:save-artifact', srcPath, suggestedName),
+  listAudioLibrary: (): Promise<LibrarySong[]> => ipcRenderer.invoke('create:list-audio-library'),
 
   // Tools view
   transcribeSong: (params: TranscribeParams): Promise<TranscribeResult> =>

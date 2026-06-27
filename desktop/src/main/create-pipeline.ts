@@ -13,6 +13,7 @@ import * as aceStep from './tools/ace-step'
 import * as aceStepApi from './tools/ace-step-api'
 import * as zimage from './tools/zimage'
 import * as syrex from './tools/syrex'
+import { audioLibraryDir, imageLibraryDir, videoLibraryDir, saveGeneratedSong } from './library'
 import { buildNightcoreAudioCmd, nightcoreVideoInPlace, DEFAULT_SPEED } from './tools/nightcore'
 import { renderVideoWithFallback } from './tools/video'
 import { jobsDir, mainVenvPython, dataDir, appResourcesDir } from './paths'
@@ -259,6 +260,15 @@ export async function runAll(params: RunAllParams, onData: OnData): Promise<void
       lyricsText = result.lyricsText
       if (songPath === null) return // flow.errorMessage/stage already set
 
+      // Saved into the library right away — before the rest of the pipeline
+      // (which can still fail) runs — so the raw generated song is always
+      // there to browse/reuse, not just buried in a per-run job temp dir.
+      try {
+        saveGeneratedSong(getOutputDir(), songPath, songName, prompt, lyricsText, shortId())
+      } catch (exc) {
+        onData(`Could not save the generated song to the library: ${String(exc)}\r\n`)
+      }
+
       if (imageSource === 'auto') {
         if (template === 'sky') {
           // The "Minimalistic Sky" template hardcodes the image-generation
@@ -271,6 +281,13 @@ export async function runAll(params: RunAllParams, onData: OnData): Promise<void
           const imagePrompt = resolveImagePrompt(prompt, imagePromptMode, imagePromptText)
           const generatedImage = await generateImage(imagePrompt, onData)
           if (generatedImage !== null) imagePath = generatedImage
+        }
+        if (imagePath !== params.imagePath) {
+          try {
+            copyFileSync(imagePath, path.join(imageLibraryDir(getOutputDir()), `${sanitizeFilename(songName) || 'image'}_${shortId()}${path.extname(imagePath)}`))
+          } catch (exc) {
+            onData(`Could not save the generated image to the library: ${String(exc)}\r\n`)
+          }
         }
       }
     } else {
@@ -426,11 +443,12 @@ export async function runAll(params: RunAllParams, onData: OnData): Promise<void
     // audio only" below, which looked like nothing had been produced at all
     // when they checked the output folder directly without clicking those.
     try {
-      const destDir = getOutputDir()
       const baseName = sanitizeFilename(songName) || `song_${path.basename(jobDir)}`
-      copyFileSync(videoOut, path.join(destDir, `${baseName}.mp4`))
-      copyFileSync(audioOut, path.join(destDir, `${baseName}_audio.mp3`))
-      onData(`Saved video + audio to ${destDir}\r\n`)
+      const videoDestDir = videoLibraryDir(getOutputDir())
+      const audioDestDir = audioLibraryDir(getOutputDir())
+      copyFileSync(videoOut, path.join(videoDestDir, `${baseName}.mp4`))
+      copyFileSync(audioOut, path.join(audioDestDir, `${baseName}_audio.mp3`))
+      onData(`Saved video to ${videoDestDir} and audio to ${audioDestDir}\r\n`)
     } catch (exc) {
       onData(`Could not auto-save to the output folder: ${String(exc)}\r\n`)
     }

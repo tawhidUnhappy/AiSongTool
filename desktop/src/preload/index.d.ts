@@ -4,6 +4,7 @@ import type {
   CreateFlow,
   CreateRunParams,
   DoctorStatus,
+  LibrarySong,
   ModelOptions,
   NightcoreVideoParams,
   NightcoreVideoResult,
@@ -52,6 +53,7 @@ interface Api {
   pickImageFile: () => Promise<string | null>
   listSubtitleOutputs: (jobDir: string) => Promise<{ ext: string; label: string }[]>
   saveArtifact: (srcPath: string, suggestedName: string) => Promise<string>
+  listAudioLibrary: () => Promise<LibrarySong[]>
 
   transcribeSong: (params: TranscribeParams) => Promise<TranscribeResult>
   downloadArtifact: (srcPath: string, suggestedName: string) => Promise<string>
