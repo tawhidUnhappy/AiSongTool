@@ -23,6 +23,20 @@ from typing import Any
 
 RELEASE_TASK_MODELS_RELATIVE_PATH = "acestep/api/http/release_task_models.py"
 TARGET_CLASS_NAME = "GenerateMusicRequest"
+CONSTANTS_RELATIVE_PATH = "acestep/constants.py"
+
+# A few request-model fields are plain `str` in GenerateMusicRequest (no
+# Literal/enum in the type itself — confirmed by reading that class), but
+# ACE-Step's own Gradio UI wires them up from a real, shared module-level
+# constant elsewhere in its codebase (e.g. vocal_language's dropdown is
+# built from constants.py's VALID_LANGUAGES, not hardcoded in the UI file).
+# Pulling the choices from that constant — rather than hand-typing ACE-Step's
+# language list ourselves — keeps this auto-derived: if ACE-Step adds a
+# language to VALID_LANGUAGES, it shows up here next regeneration with no
+# code change. The field-name -> constant-name association itself is the
+# only hand-maintained part, and it's small and rarely-changing (renaming
+# either side is a one-line fix here, not a recurring maintenance burden).
+FIELD_ENUM_CONSTANTS = {"vocal_language": "VALID_LANGUAGES"}
 
 
 class SchemaExtractionError(RuntimeError):
@@ -124,6 +138,27 @@ def _field_from_assign(node: ast.AnnAssign) -> dict | None:
     }
 
 
+def _load_constants(ace_step_dir: Path) -> dict[str, list]:
+    """Module-level `NAME = [...]` list-literal assignments in
+    constants.py — a real, stable source of truth for choice lists that
+    aren't expressed as a Literal type in the request model itself (see
+    FIELD_ENUM_CONSTANTS)."""
+    path = ace_step_dir / CONSTANTS_RELATIVE_PATH
+    if not path.exists():
+        return {}
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    constants: dict[str, list] = {}
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+            try:
+                value = ast.literal_eval(stmt.value)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(value, list):
+                constants[stmt.targets[0].id] = value
+    return constants
+
+
 def extract_schema(ace_step_dir: Path) -> dict:
     source_path = ace_step_dir / RELEASE_TASK_MODELS_RELATIVE_PATH
     if not source_path.exists():
@@ -137,12 +172,19 @@ def extract_schema(ace_step_dir: Path) -> dict:
     if target is None:
         raise SchemaExtractionError(f"Class {TARGET_CLASS_NAME} not found in {source_path}.")
 
+    constants = _load_constants(ace_step_dir)
+
     fields = []
     for stmt in target.body:
         if isinstance(stmt, ast.AnnAssign):
             field = _field_from_assign(stmt)
-            if field is not None:
-                fields.append(field)
+            if field is None:
+                continue
+            constant_name = FIELD_ENUM_CONSTANTS.get(field["name"])
+            if constant_name and constant_name in constants:
+                field["type"] = "enum"
+                field["enumValues"] = [str(v) for v in constants[constant_name]]
+            fields.append(field)
 
     if not fields:
         raise SchemaExtractionError(f"No fields extracted from {TARGET_CLASS_NAME} — its definition may have changed shape.")
