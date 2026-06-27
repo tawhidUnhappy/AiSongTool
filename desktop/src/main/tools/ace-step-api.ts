@@ -10,7 +10,6 @@
  */
 import { mkdirSync, writeFileSync } from 'fs'
 import path from 'path'
-import { getSettings } from '../settings'
 
 export type LogFn = (line: string) => void
 
@@ -56,28 +55,25 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+type AceRequest = Record<string, unknown>
+
 export interface GenerateSongOptions {
-  prompt: string
-  lyrics: string
-  duration: number
+  /** The full `/release_task` request body, built by the caller
+   * (create-pipeline.ts) by merging the Create page's schema-driven
+   * generation form values — see ace-step-schema.ts/ace_step_schema.py —
+   * straight into one object, field-for-field. Deliberately untyped here:
+   * the whole point of driving the form from ACE-Step's own request model
+   * is that this app never hand-maintains a fixed list of accepted fields,
+   * so a fixed TS interface for the body would defeat that. */
+  requestBody: AceRequest
   outDir: string
   log?: LogFn
   host?: string
   port?: number
-  /** Song title — not a documented `/release_task` field; kept for
-   * parity with the caller's existing options, currently unused by the
-   * request body (ACE-Step-1.5 has no equivalent "track name" metadata
-   * field confirmed upstream). */
-  songName?: string
-  vocalLanguage?: string
-  instrumental?: boolean
-  seed?: number | null
   pollIntervalMs?: number
   timeoutMs?: number
   onProgress?: LogFn
 }
-
-type AceRequest = Record<string, unknown>
 
 interface ReleaseTaskResponse {
   data?: { task_id?: string }
@@ -94,47 +90,21 @@ interface QueryResultItem {
 /** Submit one `/release_task` (caption+lyrics -> a finished song in a single
  * job, no separate codes/audio stages like acestep.cpp's `/lm`+`/synth`),
  * poll `/query_result` until done, then download the finished file from
- * `/v1/audio?path=...`.
- *
- * `prompt`/`lyrics` are always literal manual text — the caller
- * (create-pipeline.ts) passes them through as-is. `instrumental`
- * sends empty lyrics (no separate "[Instrumental]" convention confirmed for
- * this API, unlike acestep.cpp's documented one). `vocalLanguage` should
- * already be resolved to a real code by the caller rather than left
- * "unknown". */
+ * `/v1/audio?path=...`. */
 export async function generateSong(opts: GenerateSongOptions): Promise<string> {
   const {
-    prompt,
-    lyrics,
-    duration,
+    requestBody,
     outDir,
     log = console.log,
     host = DEFAULT_HOST,
     port = DEFAULT_PORT,
-    instrumental = false,
-    seed = null,
     pollIntervalMs = 2000,
     timeoutMs = 600_000,
     onProgress
   } = opts
 
   const base = baseUrl(host, port)
-  const settings = getSettings()
-  const taskBody: AceRequest = {
-    task_type: 'text2music',
-    prompt,
-    lyrics: instrumental ? '' : lyrics,
-    audio_duration: duration,
-    vocal_language: opts.vocalLanguage === 'unknown' ? 'en' : opts.vocalLanguage,
-    seed: seed === null ? -1 : seed,
-    batch_size: 1,
-    model: settings.aceStepDitModel
-    // LM model selection (settings.aceStepLmModel) isn't wired here — the
-    // documented `/release_task` fields don't include a separate LM-model
-    // field; `thinking: true` is what enables the 5Hz LM at all, and which
-    // LM checkpoint it uses may be a server-level `/v1/init` concern rather
-    // than per-request. Revisit once tested against a live server.
-  }
+  const taskBody: AceRequest = { task_type: 'text2music', batch_size: 1, ...requestBody }
 
   log(`POST ${base}/release_task ${JSON.stringify(taskBody)}\r\n`)
   try {

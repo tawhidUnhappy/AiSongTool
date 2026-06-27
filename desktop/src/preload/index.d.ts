@@ -1,5 +1,6 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
+  AceStepSchema,
   AppSettings,
   CreateFlow,
   CreateRunParams,
@@ -16,8 +17,7 @@ interface Api {
   runSetup: () => Promise<number>
   installTool: (name: string) => Promise<number>
   resetTool: (name: string) => Promise<number>
-  launchAceStep: () => Promise<void>
-  isAceStepUiUp: () => Promise<boolean>
+  getAceStepSchema: () => Promise<AceStepSchema | null>
   launchZimageGui: () => Promise<void>
   openExternal: (url: string) => Promise<void>
   stopGui: (name: string) => Promise<void>

@@ -72,16 +72,15 @@ installed app's own files. A few notes depending on how you installed:
 
 - **Create** — the main flow: generate a song with ACE-Step-1.5 (style prompt + optional
   lyrics — its own 5Hz LM expands that into full generation metadata automatically) or
-  pick/upload an existing one. Either way it automatically runs vocal separation
-  (Demucs) and transcription/alignment (WhisperX) to produce SRT/ASS/VTT/LRC/SBV +
-  karaoke timing, generates or lets you pick a background image, and renders the final
-  lyric video — optionally with the nightcore speed/pitch edit, on by default. One
-  guided flow, end to end.
-- **ACE-Step UI** — ACE-Step-1.5's own full Gradio UI, embedded directly in the app (not
-  just the Create flow's simplified options) for generating/editing/remixing songs with
-  its complete feature set. A "Reset to official latest" button in Setup discards any
-  local changes to the cloned repo and pulls the newest official version, without
-  re-downloading already-fetched model checkpoints.
+  pick/upload an existing one. The generation form's "Advanced" section exposes ACE-Step's
+  *entire* `/release_task` request model (bpm/key/inference steps/guidance scale/repaint
+  & cover params/5Hz LM tuning, etc.) as native fields — parsed directly from ACE-Step's
+  own request model on disk and regenerated after every install/update/reset, so it never
+  goes stale even though it's not hand-maintained here. Either way (generate or pick
+  existing) it automatically runs vocal separation (Demucs) and transcription/alignment
+  (WhisperX) to produce SRT/ASS/VTT/LRC/SBV + karaoke timing, generates or lets you pick a
+  background image, and renders the final lyric video — optionally with the nightcore
+  speed/pitch edit, on by default. One guided flow, end to end.
 - **Tools** — the single-purpose pieces, for when you don't want the full flow:
   *Subtitles* (song → SRT/ASS/VTT/LRC/SBV only), *Lyric Video* (existing job + image →
   plain-speed lyric video), *Nightcore* (any song + image → sped-up edit, no lyrics).

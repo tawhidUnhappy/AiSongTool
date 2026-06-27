@@ -57,6 +57,33 @@ export interface CreateGenOptions {
   vocalLanguage: string
   instrumental: boolean
   seed: number | null
+  // The Create page's schema-driven "Advanced" section — every other
+  // ACE-Step `/release_task` request field (bpm, key_scale, inference_steps,
+  // guidance_scale, repaint/cover params, LM tuning, etc.), keyed by
+  // ACE-Step's own field names exactly, straight from ace-step-schema.ts's
+  // parse of its real request model (see ace_step_schema.py) — not a fixed
+  // list maintained here. Merged into the /release_task body alongside
+  // prompt/lyrics/duration/vocalLanguage/seed.
+  advancedFields: Record<string, unknown>
+}
+
+/** Mirrors `desktop/src/main/ace-step-schema.ts` — the generation-form
+ * schema parsed from ACE-Step's own request model, regenerated after every
+ * install/update/reset. */
+export interface AceStepSchemaField {
+  name: string
+  type: 'string' | 'boolean' | 'integer' | 'number' | 'enum' | 'list'
+  enumValues: string[] | null
+  optional: boolean
+  multiline: boolean
+  default: unknown
+  description: string
+  min: number | null
+  max: number | null
+}
+
+export interface AceStepSchema {
+  fields: AceStepSchemaField[]
 }
 
 export interface CreateRunParams {

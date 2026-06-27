@@ -84,16 +84,18 @@ export function getOutputDir(): string {
 
 /** Runs ACE-Step end to end: install check -> start its API server ->
  * generate -> explicitly shut the server down again (frees the GPU before
- * Demucs/WhisperX run next). `vocalLanguage` and `songName` are passed in
- * already resolved (literal manual text) by the caller. */
+ * Demucs/WhisperX run next). `prompt`/`lyrics`/`vocalLanguage` are passed in
+ * already resolved (literal manual text) by the caller; `advancedFields` is
+ * the Create page's schema-driven "Advanced" section, merged into the
+ * request body as-is. */
 async function generateSong(
   prompt: string,
   lyrics: string,
   duration: number,
-  songName: string,
   vocalLanguage: string,
   instrumental: boolean,
   seed: number | null,
+  advancedFields: Record<string, unknown>,
   onData: OnData
 ): Promise<{ songPath: string | null; lyricsText: string }> {
   debugLog('generateSong: entered')
@@ -124,16 +126,20 @@ async function generateSong(
     flow.stage = 'gen_generating'
     flow.stageStartedAt = Date.now()
     const genOutDir = path.join(jobsDir(), '_songgen', shortId())
-    const audioPath = await aceStepApi.generateSong({
+    const settings = getSettings()
+    const requestBody: Record<string, unknown> = {
+      ...advancedFields,
       prompt,
-      lyrics,
-      duration,
+      lyrics: instrumental ? '' : lyrics,
+      audio_duration: duration,
+      vocal_language: vocalLanguage === 'unknown' ? 'en' : vocalLanguage,
+      seed: seed === null ? -1 : seed,
+      model: settings.aceStepDitModel
+    }
+    const audioPath = await aceStepApi.generateSong({
+      requestBody,
       outDir: genOutDir,
       log: onData,
-      songName,
-      vocalLanguage,
-      instrumental,
-      seed,
       onProgress: (text) => (flow.genProgressText = text)
     })
     const returnedLyrics = instrumental ? '' : lyrics
@@ -243,17 +249,14 @@ export async function runAll(params: RunAllParams, onData: OnData): Promise<void
     let lyricsText: string
 
     if (mode === 'generate') {
-      // vocalLanguage left on "Auto" (genOptions.vocalLanguage === 'unknown')
-      // is passed straight through — ace-step-api.ts's generateSong() itself
-      // defaults that to 'en'.
       const result = await generateSong(
         prompt,
         lyrics,
         duration,
-        songName,
         genOptions.vocalLanguage,
         genOptions.instrumental,
         genOptions.seed,
+        genOptions.advancedFields,
         onData
       )
       songPath = result.songPath

@@ -68,19 +68,6 @@ export function buildServerCmd(): string[] {
   return [findUv(), 'run', 'acestep-api']
 }
 
-/** `uv run acestep` — ACE-Step-1.5's *other* `[project.scripts]` entry point
- * (`acestep.acestep_v15_pipeline:main`), the actual Gradio demo UI. Distinct
- * from `acestep-api` above: that one is a headless REST server (no page at
- * its root, the "ACE-Step UI" launch button was wrongly opening that one's
- * bare URL and just got a 404) on port 8001; this one is a real Gradio page,
- * defaulting to port 7860. */
-export function buildGuiCmd(): string[] {
-  if (!isSynced()) {
-    throw new AceStepError("ACE-Step-1.5 isn't installed yet. Install it from the Setup view first.")
-  }
-  return [findUv(), 'run', 'acestep']
-}
-
 /** `uv run acestep-download` — ACE-Step-1.5's own pre-download entry point
  * (fetches checkpoints from Hugging Face directly, not from this app). No
  * per-model-variant flags confirmed upstream yet, so this currently just

@@ -3,10 +3,6 @@ import type { AppSettings, DoctorStatus, ModelOptions } from '../../../shared/ty
 import { ToolCard } from '../components/ToolCard'
 import { GuiControl } from '../components/GuiControl'
 
-interface SetupProps {
-  onOpenAceStepTab: () => void
-}
-
 function ModelSelect({
   label,
   value,
@@ -43,7 +39,7 @@ function StatusRow({ label, ok, detail }: { label: string; ok: boolean; detail?:
   )
 }
 
-export function Setup({ onOpenAceStepTab }: SetupProps): React.JSX.Element {
+export function Setup(): React.JSX.Element {
   const [status, setStatus] = useState<DoctorStatus | null>(null)
   const [runningSetup, setRunningSetup] = useState(false)
   const [settings, setSettings] = useState<AppSettings | null>(null)
@@ -210,13 +206,10 @@ export function Setup({ onOpenAceStepTab }: SetupProps): React.JSX.Element {
               </>
             )}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button onClick={onOpenAceStepTab} disabled={!status?.ace_step.synced}>
-                Open ACE-Step UI
-              </button>
               <button
                 onClick={resetAceStep}
                 disabled={resettingAceStep || jobRunning || !status?.ace_step.cloned}
-                title="Discards any local changes to the cloned ACE-Step repo and pulls the latest official version — does not touch already-downloaded model checkpoints."
+                title="Discards any local changes to the cloned ACE-Step repo and pulls the latest official version — does not touch already-downloaded model checkpoints, and regenerates the Create page's generation form to match."
               >
                 {resettingAceStep ? 'Resetting…' : 'Reset to official latest'}
               </button>

@@ -1,8 +1,27 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CreateFlow, LibrarySong } from '../../../shared/types'
+import type { AceStepSchemaField, CreateFlow, LibrarySong } from '../../../shared/types'
 import { STAGE_TEXT } from '../../../shared/types'
 import templateSkyPreview from '../assets/template_sky.jpg'
 import templateSyrexPreview from '../assets/template_syrex.jpg'
+import SchemaForm from '../components/SchemaForm'
+
+// Already covered by their own dedicated controls above the Advanced
+// section (song style/lyrics/duration/vocal language/seed/model) — every
+// other field ACE-Step's request model declares (bpm, key_scale,
+// inference_steps, guidance_scale, repaint/cover params, LM tuning, etc.)
+// shows up there automatically, with no list to maintain here when ACE-Step
+// adds new ones.
+const CORE_FIELD_NAMES = new Set([
+  'task_type',
+  'prompt',
+  'global_caption',
+  'lyrics',
+  'audio_duration',
+  'vocal_language',
+  'seed',
+  'model',
+  'batch_size'
+])
 
 function fmtDuration(totalSeconds: number): string {
   const s = Math.floor(totalSeconds)
@@ -33,15 +52,35 @@ export function Create(): React.JSX.Element {
   // structure rather than just a short clip.
   const [duration, setDuration] = useState(200)
 
+  // The Create page's full generation form, beyond the core fields above —
+  // built directly from ACE-Step's own request model (see SchemaForm.tsx /
+  // ace-step-schema.ts), not hand-maintained, so it grows/shrinks/retypes
+  // itself whenever ACE-Step's installed version changes.
+  const [advancedSchemaFields, setAdvancedSchemaFields] = useState<AceStepSchemaField[]>([])
+  const [advancedValues, setAdvancedValues] = useState<Record<string, unknown>>({})
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+
+  useEffect(() => {
+    window.api.getAceStepSchema().then((schema) => {
+      if (!schema) return
+      const extra = schema.fields.filter((f) => !CORE_FIELD_NAMES.has(f.name))
+      setAdvancedSchemaFields(extra)
+      setAdvancedValues((prev) => {
+        const next = { ...prev }
+        for (const f of extra) if (!(f.name in next)) next[f.name] = f.default
+        return next
+      })
+    })
+  }, [])
+
   const [existingSongPath, setExistingSongPath] = useState<string | null>(null)
   const [existingLyrics, setExistingLyrics] = useState('')
   const [captionSource, setCaptionSource] = useState<'auto' | 'transcript' | 'lyrics'>('transcript')
   const [librarySongs, setLibrarySongs] = useState<LibrarySong[]>([])
 
-  // Auto-detects new songs (the Create flow's own generations, and anything
-  // made in the separate "ACE-Step UI" tab — see library.ts's
-  // importAceStepUiOutputs) while the card picker below is actually visible;
-  // no point polling a directory listing nobody's looking at.
+  // Auto-detects new songs from this page's own generations while the card
+  // picker below is actually visible; no point polling a directory listing
+  // nobody's looking at.
   useEffect(() => {
     if (mode !== 'existing') return
     const poll = (): void => {
@@ -257,7 +296,8 @@ export function Create(): React.JSX.Element {
       genOptions: {
         vocalLanguage,
         instrumental,
-        seed
+        seed,
+        advancedFields: advancedValues
       },
       existingSong: existingSongPath,
       existingLyrics: existingLyrics.trim(),
@@ -426,6 +466,22 @@ export function Create(): React.JSX.Element {
                 style={{ width: '100%' }}
               />
             </Field>
+
+            {advancedSchemaFields.length > 0 && (
+              <details open={advancedOpen} onToggle={(e) => setAdvancedOpen((e.target as HTMLDetailsElement).open)}>
+                <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--ev-c-text-2)' }}>
+                  Advanced ACE-Step options ({advancedSchemaFields.length} fields, straight from ACE-Step's own
+                  request model)
+                </summary>
+                <div style={{ marginTop: 10 }}>
+                  <SchemaForm
+                    fields={advancedSchemaFields}
+                    values={advancedValues}
+                    onChange={(name, value) => setAdvancedValues((prev) => ({ ...prev, [name]: value }))}
+                  />
+                </div>
+              </details>
+            )}
           </>
         ) : (
           <>

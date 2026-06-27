@@ -2,6 +2,10 @@
 jobs/
 output/
 desktop-settings.json
+# Generation-form schema, regenerated after every ACE-Step install/update/
+# reset (see ace_step.py's _regenerate_schema()) — not authored, not stable
+# across machines/ACE-Step versions.
+ace-step-schema.json
 # HF/torch/uv caches — see desktop/src/main/paths.ts's cacheEnv(), centralized
 # here (repo root, in dev mode) instead of ~/.cache/%LOCALAPPDATA%/etc.
 /caches/
