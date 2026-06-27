@@ -93,6 +93,35 @@ function SchemaFieldControl({
     )
   }
 
+  // ACE-Step's request model has no dedicated "this is a file path" type —
+  // it's just `str`/`Optional[str]` like any other text field — but every
+  // such field in practice is named `*_path` (reference_audio_path,
+  // src_audio_path). A real native file dialog beats asking the user to
+  // type/paste an absolute path by hand, which was the actual complaint
+  // (Gradio's own upload widget vs. this being "just give the path").
+  if (field.name.endsWith('_path')) {
+    return (
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input
+          type="text"
+          value={String(value ?? '')}
+          placeholder={field.optional ? '(none)' : undefined}
+          onChange={(e) => onChange(e.target.value)}
+          style={{ ...inputStyle, flex: 1 }}
+        />
+        <button
+          type="button"
+          onClick={async () => {
+            const picked = await window.api.pickSongFile()
+            if (picked) onChange(picked)
+          }}
+        >
+          Browse...
+        </button>
+      </div>
+    )
+  }
+
   // 'string' / 'list' — a list-typed field (e.g. track_classes) still just
   // takes free text here rather than a dedicated multi-select widget; rare
   // enough in ACE-Step's request model that a plain text input (left as-is,

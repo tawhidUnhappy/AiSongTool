@@ -22,6 +22,28 @@ const HANDLED_ELSEWHERE = new Set(['model', 'batch_size'])
 // value the user sees, not a hardcoded field definition.
 const INITIAL_VALUE_OVERRIDES: Record<string, unknown> = { audio_duration: 200 }
 
+// Every field still renders from the live schema with nothing dropped — this
+// only controls which ones are *visible by default*, so a plain text2music
+// run isn't confronted with ~15 repaint/cover/lego fields that do nothing
+// unless you're also in that specific task_type/mode. A field not matched
+// by any rule here is always shown (the safe default for anything new
+// ACE-Step adds that this list doesn't yet know about).
+function isFieldRelevant(field: AceStepSchemaField, values: Record<string, unknown>): boolean {
+  const taskType = values.task_type
+  if (field.name === 'sample_query' || field.name === 'use_format') return Boolean(values.sample_mode)
+  if (field.name === 'global_caption' || field.name === 'track_name' || field.name === 'track_classes') {
+    return taskType === 'lego'
+  }
+  if (field.name.startsWith('repaint') || field.name === 'chunk_mask_mode' || field.name === 'src_audio_path') {
+    return taskType === 'repaint'
+  }
+  if (field.name === 'audio_cover_strength' || field.name === 'cover_noise_strength' || field.name === 'reference_audio_path') {
+    return taskType === 'cover' || taskType === 'cover-nofsq'
+  }
+  if (field.name === 'extract_codes_only') return taskType === 'extract'
+  return true
+}
+
 function fmtDuration(totalSeconds: number): string {
   const s = Math.floor(totalSeconds)
   return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
@@ -355,12 +377,12 @@ export function Create(): React.JSX.Element {
 
             <hr style={hr} />
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ev-c-text-2)' }}>
-              ACE-Step generation options ({genFields.length} fields) — read live from your installed ACE-Step's own
-              request model, not hand-maintained, so it never falls out of sync. Leave Lyrics empty for an
-              instrumental track.
+              ACE-Step generation options — read live from your installed ACE-Step's own request model, not
+              hand-maintained, so it never falls out of sync. Leave Lyrics empty for an instrumental track. Some
+              fields only appear once the relevant Task type / Sample mode is selected.
             </div>
             <SchemaForm
-              fields={genFields}
+              fields={genFields.filter((f) => isFieldRelevant(f, genValues))}
               values={genValues}
               onChange={(name, value) => setGenValues((prev) => ({ ...prev, [name]: value }))}
             />
