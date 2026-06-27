@@ -48,7 +48,6 @@ export function Create(): React.JSX.Element {
 
   const [imageSource, setImageSource] = useState<'auto' | 'pick'>('auto')
   const [imagePath, setImagePath] = useState<string | null>(null)
-  const [imagePromptMode, setImagePromptMode] = useState<'song' | 'manual'>('song')
   const [imagePromptText, setImagePromptText] = useState('')
 
   const [promptHistoryEnabled, setPromptHistoryEnabled] = useState(true)
@@ -69,7 +68,6 @@ export function Create(): React.JSX.Element {
       setTemplate(s.createTemplate)
       setNightcore(s.createNightcore)
       setImageSource(s.createImageSource)
-      setImagePromptMode(s.createImagePromptMode)
       setLoadedSettings(true)
     })
   }, [])
@@ -89,9 +87,6 @@ export function Create(): React.JSX.Element {
   useEffect(() => {
     if (loadedSettings) window.api.setSetting('createImageSource', imageSource)
   }, [loadedSettings, imageSource])
-  useEffect(() => {
-    if (loadedSettings) window.api.setSetting('createImagePromptMode', imagePromptMode)
-  }, [loadedSettings, imagePromptMode])
 
   const toggleHistoryEnabled = async (enabled: boolean): Promise<void> => {
     setPromptHistoryEnabled(enabled)
@@ -184,7 +179,7 @@ export function Create(): React.JSX.Element {
     }
     if (imagePath === null) return
 
-    if (imagePromptMode !== 'song' && promptHistoryEnabled) {
+    if (promptHistoryEnabled) {
       const trimmed = imagePromptText.trim()
       if (trimmed) {
         setImagePromptHistory((prev) => [trimmed, ...prev.filter((p) => p !== trimmed)].slice(0, 20))
@@ -206,7 +201,6 @@ export function Create(): React.JSX.Element {
       nightcore,
       imageSource,
       imagePath,
-      imagePromptMode,
       imagePromptText: imagePromptText.trim()
     })
 
@@ -227,8 +221,36 @@ export function Create(): React.JSX.Element {
     await window.api.saveArtifact(src, `${stem}.${ext}`)
   }
 
+  // "Generate a new song" takes over the whole tab (full-bleed embedded
+  // webview, no other cards, no outer scrollbar) instead of being one card
+  // in a long scrolling list — the embedded Gradio UI needs real screen
+  // space to be usable, not a small boxed-in preview. Switch to "Use an
+  // existing song" to get the normal scrolling form back (Template/
+  // Background image/Output/Run) and pick up whatever was just generated.
+  if (mode === 'generate') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <Radio
+            name="mode"
+            value={mode}
+            onChange={(v) => setMode(v as typeof mode)}
+            options={[
+              ['generate', 'Generate a new song'],
+              ['existing', 'Use an existing song']
+            ]}
+          />
+          <span style={muted}>Generate here, then switch to "Use an existing song" to continue with subtitles/video.</span>
+        </div>
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <AceStepEmbeddedGenerator />
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto', height: '100%' }}>
       <Card title="Output folder">
         <button onClick={pickOutputDir}>Choose folder</button>
         <div style={muted}>
@@ -284,31 +306,25 @@ export function Create(): React.JSX.Element {
 
         <hr style={hr} />
 
-        {mode === 'generate' ? (
-          <AceStepEmbeddedGenerator />
-        ) : (
-          <>
-            {librarySongs.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>
-                  Previously generated songs — pick one to use as this run's input
-                </span>
-                <SongLibraryGrid songs={librarySongs} selected={existingSongPath} onPick={useLibrarySong} />
-              </div>
-            )}
-            <div style={row}>
-              <button onClick={pickSong}>Pick song file from disk…</button>
-              <span style={muted}>{existingSongPath ? `Using: ${path_basename(existingSongPath)}` : 'No song selected.'}</span>
-            </div>
-            <textarea
-              placeholder="Lyrics for this song (optional, improves alignment)"
-              value={existingLyrics}
-              onChange={(e) => setExistingLyrics(e.target.value)}
-              rows={3}
-              style={textareaStyle}
-            />
-          </>
+        {librarySongs.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>
+              Previously generated songs — pick one to use as this run's input
+            </span>
+            <SongLibraryGrid songs={librarySongs} selected={existingSongPath} onPick={useLibrarySong} />
+          </div>
         )}
+        <div style={row}>
+          <button onClick={pickSong}>Pick song file from disk…</button>
+          <span style={muted}>{existingSongPath ? `Using: ${path_basename(existingSongPath)}` : 'No song selected.'}</span>
+        </div>
+        <textarea
+          placeholder="Lyrics for this song (optional, improves alignment)"
+          value={existingLyrics}
+          onChange={(e) => setExistingLyrics(e.target.value)}
+          rows={3}
+          style={textareaStyle}
+        />
       </Card>
 
       <Card title="2. Template">
@@ -345,7 +361,7 @@ export function Create(): React.JSX.Element {
           value={imageSource}
           onChange={(v) => setImageSource(v as typeof imageSource)}
           options={[
-            ['auto', "Generate from the song's prompt (Z-Image-Turbo)"],
+            ['auto', 'Generate from a description (Z-Image-Turbo)'],
             ['pick', 'Pick an image']
           ]}
         />
@@ -361,37 +377,24 @@ export function Create(): React.JSX.Element {
             no need to write one.
           </div>
         )}
-        {imageSource === 'auto' && template === 'syrex' && mode === 'generate' && (
+        {imageSource === 'auto' && template === 'syrex' && (
           <>
             <hr style={hr} />
-            <Radio
-              name="imagePromptMode"
-              value={imagePromptMode}
-              onChange={(v) => setImagePromptMode(v as typeof imagePromptMode)}
-              options={[
-                ['song', "Use the song's prompt"],
-                ['manual', 'Write my own image prompt']
-              ]}
+            <textarea
+              placeholder="e.g. a neon-lit city skyline at night, cinematic, rain-soaked streets"
+              value={imagePromptText}
+              onChange={(e) => setImagePromptText(e.target.value)}
+              rows={2}
+              style={textareaStyle}
             />
-            {imagePromptMode === 'manual' && (
-              <textarea
-                placeholder="e.g. a neon-lit city skyline at night, cinematic, rain-soaked streets"
-                value={imagePromptText}
-                onChange={(e) => setImagePromptText(e.target.value)}
-                rows={2}
-                style={textareaStyle}
-              />
-            )}
-            {imagePromptMode !== 'song' && (
-              <PromptHistory
-                entries={imagePromptHistory}
-                enabled={promptHistoryEnabled}
-                onPick={setImagePromptText}
-                onRemove={removeImagePromptHistoryEntry}
-                onClear={clearImagePromptHistory}
-                onToggleEnabled={toggleHistoryEnabled}
-              />
-            )}
+            <PromptHistory
+              entries={imagePromptHistory}
+              enabled={promptHistoryEnabled}
+              onPick={setImagePromptText}
+              onRemove={removeImagePromptHistoryEntry}
+              onClear={clearImagePromptHistory}
+              onToggleEnabled={toggleHistoryEnabled}
+            />
           </>
         )}
       </Card>
@@ -505,10 +508,37 @@ function fmtLibraryDate(mtimeMs: number): string {
  * lands in `<ace-step repo>/gradio_outputs/`, which gets swept into this
  * app's song library (see ipc-handlers.ts's `create:list-audio-library`) —
  * switch to "Use an existing song" below to pick it up and continue. */
+type WebviewElement = HTMLElement & { insertCSS: (css: string) => Promise<string> }
+
+// ACE-Step's Gradio page is its own separate guest document inside the
+// <webview> — this app's own `color-scheme: dark` (base.css) only darkens
+// *our* page's native scrollbars, not the embedded one's, which is why it
+// rendered with a light/white scrollbar by default. Injected once the
+// guest page is actually loaded (`dom-ready`), not on mount — the webview
+// tag exists before its `src` has loaded anything to inject into.
+const DARK_SCROLLBAR_CSS = `
+  ::-webkit-scrollbar { width: 12px; height: 12px; }
+  ::-webkit-scrollbar-track { background: #1b1b1f; }
+  ::-webkit-scrollbar-thumb { background: #515c67; border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: #6b7785; }
+`
+
 function AceStepEmbeddedGenerator(): React.JSX.Element {
   const [running, setRunning] = useState(false)
   const [ready, setReady] = useState(false)
   const [launching, setLaunching] = useState(false)
+  const webviewRef = useRef<WebviewElement | null>(null)
+
+  useEffect(() => {
+    if (!ready) return
+    const el = webviewRef.current
+    if (!el) return
+    const onDomReady = (): void => {
+      el.insertCSS(DARK_SCROLLBAR_CSS)
+    }
+    el.addEventListener('dom-ready', onDomReady)
+    return () => el.removeEventListener('dom-ready', onDomReady)
+  }, [ready])
 
   useEffect(() => {
     window.api.isGuiRunning('ace-step').then(setRunning)
@@ -550,7 +580,7 @@ function AceStepEmbeddedGenerator(): React.JSX.Element {
 
   if (!running) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start', height: '100%' }}>
         <button onClick={launch} disabled={launching}>
           {launching ? 'Starting ACE-Step…' : 'Open ACE-Step'}
         </button>
@@ -563,7 +593,7 @@ function AceStepEmbeddedGenerator(): React.JSX.Element {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 }}>
       <div style={row}>
         <button onClick={stop}>Stop ACE-Step</button>
         <span style={muted}>
@@ -573,21 +603,16 @@ function AceStepEmbeddedGenerator(): React.JSX.Element {
         </span>
       </div>
       {ready ? (
-        <webview
-          src="http://127.0.0.1:7860"
-          style={{ width: '100%', height: '80vh', minHeight: 600, border: '1px solid #333', borderRadius: 6 }}
-        />
+        <webview ref={webviewRef} src="http://127.0.0.1:7860" style={{ width: '100%', flex: 1, minHeight: 0 }} />
       ) : (
         <div
           style={{
             width: '100%',
-            height: '80vh',
-            minHeight: 600,
+            flex: 1,
+            minHeight: 0,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            border: '1px solid #333',
-            borderRadius: 6
+            justifyContent: 'center'
           }}
         >
           <span style={muted}>Waiting for ACE-Step to start…</span>

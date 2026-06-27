@@ -20,7 +20,6 @@ export interface AppSettings {
   createMode: 'generate' | 'existing'
   createCaptionSource: 'auto' | 'transcript' | 'lyrics'
   createImageSource: 'auto' | 'pick'
-  createImagePromptMode: 'song' | 'manual'
   // Video template — 'sky' is the original static-image + centered Edo-font
   // captions look (background image prompt hardcoded to "Minimalistic red
   // sky"); 'syrex' is the audio-reactive visualizer (curved baseline, tower
@@ -70,7 +69,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // produces more reliable, comfortable-to-read timing either way.
   createCaptionSource: 'transcript',
   createImageSource: 'auto',
-  createImagePromptMode: 'song',
   createTemplate: 'sky',
   createNightcore: true,
 

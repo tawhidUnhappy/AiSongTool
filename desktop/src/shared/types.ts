@@ -79,9 +79,8 @@ export interface CreateRunParams {
   nightcore: boolean
   imageSource: 'auto' | 'pick'
   imagePath: string
-  // Only consulted when imageSource === 'auto' — 'song' reuses the song
-  // style/description prompt as-is, 'manual' uses imagePromptText verbatim.
-  imagePromptMode: 'song' | 'manual'
+  // Only consulted when imageSource === 'auto' (the Syrex template's image
+  // generation) — a description for Z-Image-Turbo's background image.
   imagePromptText: string
 }
 

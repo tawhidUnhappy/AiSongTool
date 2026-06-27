@@ -110,17 +110,9 @@ async function generateImage(prompt: string, onData: OnData, literal: boolean = 
   return outPath
 }
 
-/** Resolves what prompt to hand to Z-Image for the background image —
- * either the song prompt as-is, or literal manual text. */
-function resolveImagePrompt(
-  fallbackPrompt: string,
-  imagePromptMode: RunAllParams['imagePromptMode'],
-  imagePromptText: string
-): string {
-  if (imagePromptMode === 'manual') {
-    return imagePromptText.trim() || fallbackPrompt
-  }
-  return fallbackPrompt // 'song'
+/** Resolves what prompt to hand to Z-Image for the background image. */
+function resolveImagePrompt(fallbackPrompt: string, imagePromptText: string): string {
+  return imagePromptText.trim() || fallbackPrompt
 }
 
 function sanitizeFilename(name: string): string {
@@ -140,7 +132,6 @@ export async function runAll(params: RunAllParams, onData: OnData): Promise<void
       template,
       nightcore,
       imageSource,
-      imagePromptMode,
       imagePromptText
     } = params
     const songPath: string | null = existingSong
@@ -161,7 +152,7 @@ export async function runAll(params: RunAllParams, onData: OnData): Promise<void
         const generatedImage = await generateImage(SKY_TEMPLATE_PROMPT, onData, true)
         if (generatedImage !== null) imagePath = generatedImage
       } else {
-        const imagePrompt = resolveImagePrompt(prompt, imagePromptMode, imagePromptText)
+        const imagePrompt = resolveImagePrompt(prompt, imagePromptText)
         const generatedImage = await generateImage(imagePrompt, onData)
         if (generatedImage !== null) imagePath = generatedImage
       }
