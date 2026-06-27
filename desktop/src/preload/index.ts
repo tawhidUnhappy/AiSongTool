@@ -30,15 +30,12 @@ const api = {
   getTerminalHistory: (): Promise<string> => ipcRenderer.invoke('get-terminal-history'),
   isJobRunning: (): Promise<boolean> => ipcRenderer.invoke('is-job-running'),
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke('get-settings'),
-  setSetting: <K extends Exclude<keyof AppSettings, 'promptHistory' | 'imagePromptHistory'>>(
+  setSetting: <K extends Exclude<keyof AppSettings, 'imagePromptHistory'>>(
     key: K,
     value: AppSettings[K]
   ): Promise<void> => ipcRenderer.invoke('set-setting', key, value),
   getModelOptions: (): Promise<ModelOptions> => ipcRenderer.invoke('get-model-options'),
   downloadAceStepModels: (): Promise<number> => ipcRenderer.invoke('download-ace-step-models'),
-  addPromptHistory: (prompt: string): Promise<void> => ipcRenderer.invoke('add-prompt-history', prompt),
-  removePromptHistory: (prompt: string): Promise<void> => ipcRenderer.invoke('remove-prompt-history', prompt),
-  clearPromptHistory: (): Promise<void> => ipcRenderer.invoke('clear-prompt-history'),
   setPromptHistoryEnabled: (enabled: boolean): Promise<void> =>
     ipcRenderer.invoke('set-prompt-history-enabled', enabled),
   addImagePromptHistory: (prompt: string): Promise<void> => ipcRenderer.invoke('add-image-prompt-history', prompt),

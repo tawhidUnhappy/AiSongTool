@@ -20,7 +20,7 @@ import { mainVenvPython, dataDir } from './paths'
 import { ensureMainEnv } from './bootstrap'
 import { recordTerminalChunk, getTerminalHistory } from './terminal-history'
 import { listAudioLibrary } from './library'
-import { readAceStepSchema } from './ace-step-schema'
+import { getAceStepSchema } from './ace-step-schema'
 import * as aceStep from './tools/ace-step'
 import * as zimage from './tools/zimage'
 import * as createPipeline from './create-pipeline'
@@ -31,9 +31,6 @@ import type { TranscribeParams, NightcoreVideoParams } from '../shared/types'
 import {
   getSettings,
   setSetting,
-  addPromptHistoryEntry,
-  removePromptHistoryEntry,
-  clearPromptHistory,
   addImagePromptHistoryEntry,
   removeImagePromptHistoryEntry,
   clearImagePromptHistory,
@@ -98,7 +95,7 @@ export function registerIpcHandlers(): void {
   // separate Gradio UI to launch or embed any more (its "Generate" button
   // has no stable API contract to integrate against; the REST API server
   // this app already talks to does — see ace_step_schema.py's docstring).
-  ipcMain.handle('get-ace-step-schema', () => readAceStepSchema())
+  ipcMain.handle('get-ace-step-schema', () => getAceStepSchema())
 
   ipcMain.handle('stop-gui', (_event, name: string) => stopNamedGui(name))
 
@@ -167,12 +164,6 @@ export function registerIpcHandlers(): void {
       setSetting(key, value as never)
     }
   )
-
-  ipcMain.handle('add-prompt-history', (_event, prompt: string) => addPromptHistoryEntry(prompt))
-
-  ipcMain.handle('remove-prompt-history', (_event, prompt: string) => removePromptHistoryEntry(prompt))
-
-  ipcMain.handle('clear-prompt-history', () => clearPromptHistory())
 
   ipcMain.handle('set-prompt-history-enabled', (_event, enabled: boolean) => setSetting('promptHistoryEnabled', enabled))
 

@@ -10,19 +10,15 @@ export interface AppSettings {
   aceStepLmModel: string
   aceStepDitModel: string
   whisperModel: string
-  promptHistory: string[]
   promptHistoryEnabled: boolean
   imagePromptHistory: string[]
 
   // Create view — every dropdown/checkbox/radio remembered across restarts,
-  // so reopening the app doesn't reset them to defaults. Free-text fields
-  // (prompt/lyrics/seed) aren't included here; prompt text already has its
-  // own history feature, and a remembered seed would silently make every
-  // future "random" run reproduce the same output.
+  // so reopening the app doesn't reset them to defaults. The generation
+  // form itself (prompt/lyrics/seed/duration/vocal language/etc.) isn't
+  // persisted here — it's built live from ACE-Step's own request model (see
+  // ace-step-schema.ts), not a fixed set of settings keys to remember.
   createMode: 'generate' | 'existing'
-  createInstrumental: boolean
-  createVocalLanguage: string
-  createDuration: number
   createCaptionSource: 'auto' | 'transcript' | 'lyrics'
   createImageSource: 'auto' | 'pick'
   createImagePromptMode: 'song' | 'manual'
@@ -62,16 +58,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   aceStepLmModel: 'acestep-5Hz-lm-1.7B',
   aceStepDitModel: 'acestep-v15-turbo',
   whisperModel: 'large-v3',
-  promptHistory: [],
   promptHistoryEnabled: true,
   imagePromptHistory: [],
 
   createMode: 'generate',
-  createInstrumental: false,
-  createVocalLanguage: 'unknown',
-  // 3m20s — long enough for a full verse/chorus/verse/chorus/bridge
-  // structure rather than just a short clip.
-  createDuration: 200,
   // Defaults to the WhisperX-transcript path (same as the Tools view's
   // "Transcribe to .srt", which always uses this when no lyrics are
   // pasted) rather than aligning literal lyrics text against the audio —
@@ -114,32 +104,10 @@ export function setSetting<K extends keyof AppSettings>(key: K, value: AppSettin
 
 const MAX_PROMPT_HISTORY = 20
 
-/** Records a "describe the song" prompt right when a Create run actually
- * starts (not on every keystroke) — a no-op if the user has turned history
- * off. Most-recent-first, de-duped, capped at MAX_PROMPT_HISTORY. */
-export function addPromptHistoryEntry(prompt: string): void {
-  const trimmed = prompt.trim()
-  const current = getSettings()
-  if (!current.promptHistoryEnabled || !trimmed) return
-  const next = [trimmed, ...current.promptHistory.filter((p) => p !== trimmed)].slice(0, MAX_PROMPT_HISTORY)
-  setSetting('promptHistory', next)
-}
-
-export function removePromptHistoryEntry(prompt: string): void {
-  const current = getSettings()
-  setSetting(
-    'promptHistory',
-    current.promptHistory.filter((p) => p !== prompt)
-  )
-}
-
-export function clearPromptHistory(): void {
-  setSetting('promptHistory', [])
-}
-
-/** Same idea as the "describe the song" history above, for the image
- * prompt field — shares the same on/off toggle (promptHistoryEnabled),
- * separate list since the two prompts mean different things. */
+/** Records a description for the image-prompt field right when a Create run
+ * actually starts (not on every keystroke) — a no-op if the user has turned
+ * history off (promptHistoryEnabled). Most-recent-first, de-duped, capped at
+ * MAX_PROMPT_HISTORY. */
 export function addImagePromptHistoryEntry(prompt: string): void {
   const trimmed = prompt.trim()
   const current = getSettings()

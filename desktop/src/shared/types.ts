@@ -127,14 +127,10 @@ export interface AppSettings {
   aceStepLmModel: string
   aceStepDitModel: string
   whisperModel: string
-  promptHistory: string[]
   promptHistoryEnabled: boolean
   imagePromptHistory: string[]
 
   createMode: 'generate' | 'existing'
-  createInstrumental: boolean
-  createVocalLanguage: string
-  createDuration: number
   createCaptionSource: 'auto' | 'transcript' | 'lyrics'
   createImageSource: 'auto' | 'pick'
   createImagePromptMode: 'song' | 'manual'

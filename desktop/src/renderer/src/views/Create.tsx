@@ -5,22 +5,52 @@ import templateSkyPreview from '../assets/template_sky.jpg'
 import templateSyrexPreview from '../assets/template_syrex.jpg'
 import SchemaForm from '../components/SchemaForm'
 
-// Already covered by their own dedicated controls above the Advanced
-// section (song style/lyrics/duration/vocal language/seed/model) — every
-// other field ACE-Step's request model declares (bpm, key_scale,
-// inference_steps, guidance_scale, repaint/cover params, LM tuning, etc.)
-// shows up there automatically, with no list to maintain here when ACE-Step
-// adds new ones.
-const CORE_FIELD_NAMES = new Set([
-  'task_type',
-  'prompt',
+// `task_type`/`model`/`batch_size` are driven by this app itself (always
+// text2music, the Setup view's DiT model picker, one song per run) rather
+// than exposed here, to avoid a second control for the same setting. Every
+// other real ACE-Step field — including prompt/lyrics/audio_duration/
+// vocal_language/seed — renders straight from the live schema below, with
+// no separate hand-built widget of our own.
+const HANDLED_ELSEWHERE = new Set(['task_type', 'model', 'batch_size'])
+
+// ACE-Step's request model also covers workflow modes this Create flow
+// never uses — sample-mode auto-captioning (writes its own caption/lyrics
+// from `sample_query`, directly conflicting with the manual Song
+// style/Lyrics boxes above), and repaint/cover/audio-editing/extraction,
+// which only apply to task types other than the plain text2music this flow
+// always sends. Showing them here would just be confusing, unused noise —
+// excluded by workflow concept (small and stable) rather than by hand-
+// picking individual fields (which would defeat staying in sync with
+// upstream automatically).
+// ACE-Step's own default for `audio_duration` is `None` ("let the model
+// pick"), which isn't a usable starting point for a slider/number input in
+// this app — overridden to a sensible starting value (long enough for a
+// full verse/chorus/verse/chorus/bridge structure) only as the *initial*
+// value the user sees, not a hardcoded field definition.
+const INITIAL_VALUE_OVERRIDES: Record<string, unknown> = { audio_duration: 200 }
+
+const IRRELEVANT_WORKFLOW_FIELDS = new Set([
   'global_caption',
-  'lyrics',
-  'audio_duration',
-  'vocal_language',
-  'seed',
-  'model',
-  'batch_size'
+  'sample_mode',
+  'sample_query',
+  'use_format',
+  'reference_audio_path',
+  'src_audio_path',
+  'repainting_start',
+  'repainting_end',
+  'audio_cover_strength',
+  'cover_noise_strength',
+  'chunk_mask_mode',
+  'repaint_latent_crossfade_frames',
+  'repaint_wav_crossfade_sec',
+  'repaint_mode',
+  'repaint_strength',
+  'analysis_only',
+  'full_analysis_only',
+  'extract_codes_only',
+  'audio_code_string',
+  'track_name',
+  'track_classes'
 ])
 
 function fmtDuration(totalSeconds: number): string {
@@ -43,35 +73,31 @@ export function Create(): React.JSX.Element {
 
   const [mode, setMode] = useState<'generate' | 'existing'>('generate')
   const [songName, setSongName] = useState('')
-  const [prompt, setPrompt] = useState('')
-  const [genLyrics, setGenLyrics] = useState('')
-  const [instrumental, setInstrumental] = useState(false)
-  const [vocalLanguage, setVocalLanguage] = useState('unknown')
-  const [seedText, setSeedText] = useState('')
-  // 3m20s (200s) — long enough for a full verse/chorus/verse/chorus/bridge
-  // structure rather than just a short clip.
-  const [duration, setDuration] = useState(200)
 
-  // The Create page's full generation form, beyond the core fields above —
-  // built directly from ACE-Step's own request model (see SchemaForm.tsx /
-  // ace-step-schema.ts), not hand-maintained, so it grows/shrinks/retypes
-  // itself whenever ACE-Step's installed version changes.
-  const [advancedSchemaFields, setAdvancedSchemaFields] = useState<AceStepSchemaField[]>([])
-  const [advancedValues, setAdvancedValues] = useState<Record<string, unknown>>({})
-  const [advancedOpen, setAdvancedOpen] = useState(false)
+  // The Create page's entire generation form — built directly from
+  // ACE-Step's own request model (see SchemaForm.tsx / ace-step-schema.ts),
+  // not hand-maintained, so it grows/shrinks/retypes itself whenever
+  // ACE-Step's installed version changes. Re-fetched fresh every time
+  // generate mode is actually opened (not just once on first mount) — the
+  // main process re-parses ACE-Step's request model from disk on every call
+  // (see ace-step-schema.ts's getAceStepSchema()), so this always reflects
+  // whatever's installed right now.
+  const [genFields, setGenFields] = useState<AceStepSchemaField[]>([])
+  const [genValues, setGenValues] = useState<Record<string, unknown>>({})
 
   useEffect(() => {
+    if (mode !== 'generate') return
     window.api.getAceStepSchema().then((schema) => {
       if (!schema) return
-      const extra = schema.fields.filter((f) => !CORE_FIELD_NAMES.has(f.name))
-      setAdvancedSchemaFields(extra)
-      setAdvancedValues((prev) => {
+      const fields = schema.fields.filter((f) => !HANDLED_ELSEWHERE.has(f.name) && !IRRELEVANT_WORKFLOW_FIELDS.has(f.name))
+      setGenFields(fields)
+      setGenValues((prev) => {
         const next = { ...prev }
-        for (const f of extra) if (!(f.name in next)) next[f.name] = f.default
+        for (const f of fields) if (!(f.name in next)) next[f.name] = INITIAL_VALUE_OVERRIDES[f.name] ?? f.default
         return next
       })
     })
-  }, [])
+  }, [mode])
 
   const [existingSongPath, setExistingSongPath] = useState<string | null>(null)
   const [existingLyrics, setExistingLyrics] = useState('')
@@ -99,7 +125,6 @@ export function Create(): React.JSX.Element {
   const [imagePromptMode, setImagePromptMode] = useState<'song' | 'manual'>('song')
   const [imagePromptText, setImagePromptText] = useState('')
 
-  const [promptHistory, setPromptHistory] = useState<string[]>([])
   const [promptHistoryEnabled, setPromptHistoryEnabled] = useState(true)
   const [imagePromptHistory, setImagePromptHistory] = useState<string[]>([])
 
@@ -111,13 +136,9 @@ export function Create(): React.JSX.Element {
 
   useEffect(() => {
     window.api.getSettings().then((s) => {
-      setPromptHistory(s.promptHistory)
       setPromptHistoryEnabled(s.promptHistoryEnabled)
       setImagePromptHistory(s.imagePromptHistory)
       setMode(s.createMode)
-      setInstrumental(s.createInstrumental)
-      setVocalLanguage(s.createVocalLanguage)
-      setDuration(s.createDuration)
       setCaptionSource(s.createCaptionSource)
       setTemplate(s.createTemplate)
       setNightcore(s.createNightcore)
@@ -130,15 +151,6 @@ export function Create(): React.JSX.Element {
   useEffect(() => {
     if (loadedSettings) window.api.setSetting('createMode', mode)
   }, [loadedSettings, mode])
-  useEffect(() => {
-    if (loadedSettings) window.api.setSetting('createInstrumental', instrumental)
-  }, [loadedSettings, instrumental])
-  useEffect(() => {
-    if (loadedSettings) window.api.setSetting('createVocalLanguage', vocalLanguage)
-  }, [loadedSettings, vocalLanguage])
-  useEffect(() => {
-    if (loadedSettings) window.api.setSetting('createDuration', duration)
-  }, [loadedSettings, duration])
   useEffect(() => {
     if (loadedSettings) window.api.setSetting('createCaptionSource', captionSource)
   }, [loadedSettings, captionSource])
@@ -154,16 +166,6 @@ export function Create(): React.JSX.Element {
   useEffect(() => {
     if (loadedSettings) window.api.setSetting('createImagePromptMode', imagePromptMode)
   }, [loadedSettings, imagePromptMode])
-
-  const removeHistoryEntry = async (entry: string): Promise<void> => {
-    setPromptHistory((prev) => prev.filter((p) => p !== entry))
-    await window.api.removePromptHistory(entry)
-  }
-
-  const clearHistory = async (): Promise<void> => {
-    setPromptHistory([])
-    await window.api.clearPromptHistory()
-  }
 
   const toggleHistoryEnabled = async (enabled: boolean): Promise<void> => {
     setPromptHistoryEnabled(enabled)
@@ -250,7 +252,8 @@ export function Create(): React.JSX.Element {
 
   const run = async (): Promise<void> => {
     if (running) return
-    if (mode === 'generate' && !prompt.trim()) {
+    const genPrompt = String(genValues.prompt ?? '').trim()
+    if (mode === 'generate' && !genPrompt) {
       setStatusText('Describe the song you want first.')
       return
     }
@@ -258,23 +261,10 @@ export function Create(): React.JSX.Element {
       setStatusText('Pick a song first.')
       return
     }
-    let seed: number | null = null
-    if (seedText.trim()) {
-      seed = Number(seedText.trim())
-      if (!Number.isInteger(seed)) {
-        setStatusText('Seed must be a whole number, or left blank.')
-        return
-      }
-    }
+    const rawSeed = genValues.seed
+    const seed = typeof rawSeed === 'number' && Number.isInteger(rawSeed) ? rawSeed : null
     if (imagePath === null) return
 
-    if (mode === 'generate' && promptHistoryEnabled) {
-      const trimmed = prompt.trim()
-      if (trimmed) {
-        setPromptHistory((prev) => [trimmed, ...prev.filter((p) => p !== trimmed)].slice(0, 20))
-        await window.api.addPromptHistory(trimmed)
-      }
-    }
     if (imagePromptMode !== 'song' && promptHistoryEnabled) {
       const trimmed = imagePromptText.trim()
       if (trimmed) {
@@ -289,15 +279,15 @@ export function Create(): React.JSX.Element {
 
     await window.api.startCreateRun({
       mode,
-      prompt: prompt.trim(),
+      prompt: genPrompt,
       songName: songName.trim(),
-      genLyrics: genLyrics.trim(),
-      duration,
+      genLyrics: String(genValues.lyrics ?? '').trim(),
+      duration: Number(genValues.audio_duration ?? 200),
       genOptions: {
-        vocalLanguage,
-        instrumental,
+        vocalLanguage: String(genValues.vocal_language ?? 'en'),
+        instrumental: false,
         seed,
-        advancedFields: advancedValues
+        advancedFields: genValues
       },
       existingSong: existingSongPath,
       existingLyrics: existingLyrics.trim(),
@@ -373,54 +363,8 @@ export function Create(): React.JSX.Element {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <span style={{ fontSize: 13 }}>
-                <strong>Song style</strong>
-                <span style={muted}> — what the song sounds like (genre, mood, tempo, vocals)</span>
-              </span>
-              <textarea
-                placeholder="e.g. upbeat synth-pop, female vocals, energetic"
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                rows={2}
-                style={textareaStyle}
-              />
-              <span style={muted}>
-                ACE-Step's own LM expands this into full generation metadata (bpm/key/CoT caption)
-                automatically — no separate writing step needed.
-              </span>
-            </div>
-
-            <PromptHistory
-              entries={promptHistory}
-              enabled={promptHistoryEnabled}
-              onPick={setPrompt}
-              onRemove={removeHistoryEntry}
-              onClear={clearHistory}
-              onToggleEnabled={toggleHistoryEnabled}
-            />
-
-            <label style={{ fontSize: 13 }}>
-              <input type="checkbox" checked={instrumental} onChange={(e) => setInstrumental(e.target.checked)} /> No
-              vocals (instrumental)
-            </label>
-
-            {!instrumental && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ fontSize: 13 }}>
-                  <strong>Lyrics</strong>
-                </span>
-                <textarea
-                  placeholder="Lyrics are needed for the final lyrics video."
-                  value={genLyrics}
-                  onChange={(e) => setGenLyrics(e.target.value)}
-                  rows={4}
-                  style={textareaStyle}
-                />
-              </div>
-            )}
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 13 }}>
                 <strong>Song name</strong>
+                <span style={muted}> — just for this app's own filenames/library, not sent to ACE-Step</span>
               </span>
               <input
                 placeholder="e.g. Neon Heartbreak"
@@ -431,57 +375,16 @@ export function Create(): React.JSX.Element {
             </div>
 
             <hr style={hr} />
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ev-c-text-2)' }}>Generation settings</div>
-            <div style={row}>
-              <Field label="Vocal language">
-                <select value={vocalLanguage} onChange={(e) => setVocalLanguage(e.target.value)}>
-                  <option value="unknown">Auto (defaults to English)</option>
-                  <option value="en">English</option>
-                  <option value="ja">Japanese</option>
-                  <option value="ko">Korean</option>
-                  <option value="zh">Chinese</option>
-                  <option value="es">Spanish</option>
-                  <option value="fr">French</option>
-                  <option value="de">German</option>
-                  <option value="hi">Hindi</option>
-                  <option value="ar">Arabic</option>
-                </select>
-              </Field>
-              <Field label="Seed (optional)">
-                <input
-                  placeholder="random"
-                  value={seedText}
-                  onChange={(e) => setSeedText(e.target.value)}
-                  style={{ width: 160 }}
-                />
-              </Field>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ev-c-text-2)' }}>
+              ACE-Step generation options ({genFields.length} fields) — read live from your installed ACE-Step's own
+              request model, not hand-maintained, so it never falls out of sync. Leave Lyrics empty for an
+              instrumental track.
             </div>
-            <Field label={`Duration: ${fmtDuration(duration)}`}>
-              <input
-                type="range"
-                min={10}
-                max={240}
-                value={duration}
-                onChange={(e) => setDuration(Number(e.target.value))}
-                style={{ width: '100%' }}
-              />
-            </Field>
-
-            {advancedSchemaFields.length > 0 && (
-              <details open={advancedOpen} onToggle={(e) => setAdvancedOpen((e.target as HTMLDetailsElement).open)}>
-                <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--ev-c-text-2)' }}>
-                  Advanced ACE-Step options ({advancedSchemaFields.length} fields, straight from ACE-Step's own
-                  request model)
-                </summary>
-                <div style={{ marginTop: 10 }}>
-                  <SchemaForm
-                    fields={advancedSchemaFields}
-                    values={advancedValues}
-                    onChange={(name, value) => setAdvancedValues((prev) => ({ ...prev, [name]: value }))}
-                  />
-                </div>
-              </details>
-            )}
+            <SchemaForm
+              fields={genFields}
+              values={genValues}
+              onChange={(name, value) => setGenValues((prev) => ({ ...prev, [name]: value }))}
+            />
           </>
         ) : (
           <>
@@ -856,15 +759,6 @@ function PromptHistory({
           ))}
         </div>
       )}
-    </div>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 160 }}>
-      <span style={{ fontSize: 12, color: 'var(--ev-c-text-2)' }}>{label}</span>
-      {children}
     </div>
   )
 }

@@ -28,15 +28,12 @@ interface Api {
   getTerminalHistory: () => Promise<string>
   isJobRunning: () => Promise<boolean>
   getSettings: () => Promise<AppSettings>
-  setSetting: <K extends Exclude<keyof AppSettings, 'promptHistory' | 'imagePromptHistory'>>(
+  setSetting: <K extends Exclude<keyof AppSettings, 'imagePromptHistory'>>(
     key: K,
     value: AppSettings[K]
   ) => Promise<void>
   getModelOptions: () => Promise<ModelOptions>
   downloadAceStepModels: () => Promise<number>
-  addPromptHistory: (prompt: string) => Promise<void>
-  removePromptHistory: (prompt: string) => Promise<void>
-  clearPromptHistory: () => Promise<void>
   setPromptHistoryEnabled: (enabled: boolean) => Promise<void>
   addImagePromptHistory: (prompt: string) => Promise<void>
   removeImagePromptHistory: (prompt: string) => Promise<void>

@@ -2,14 +2,20 @@
  * Reads the generation-form schema written by
  * `aisongtool/ace_step_schema.py` (an AST-based parse of ACE-Step-1.5's own
  * `GenerateMusicRequest` Pydantic model — its real `/release_task` request
- * contract) — regenerated automatically after every install/update/reset of
- * ACE-Step (see `ace_step.py`'s `_regenerate_schema()`), not hand-maintained
- * here. The Create page's generation form renders itself from this instead
- * of a fixed set of fields we'd have to keep in sync by hand.
+ * contract). Regenerated fresh, on the spot, every time the Create page
+ * actually asks for it (see `getAceStepSchema()` below) — not just at
+ * install/update/reset time — so it always reflects whatever's literally on
+ * disk in the cloned ACE-Step repo right now, including changes made
+ * outside this app (e.g. a manual `git pull` in that repo). Re-running the
+ * AST parse is a near-instant, file-only operation (no model loading, no
+ * heavy imports), so doing it on every fetch costs nothing noticeable.
  */
 import { existsSync, readFileSync } from 'fs'
 import path from 'path'
-import { dataDir } from './paths'
+import { dataDir, mainVenvPython } from './paths'
+import { runCapture } from './jobs'
+
+const GENERATE_SCHEMA_CMD = ['-m', 'aisongtool.cli', 'generate-ace-step-schema']
 
 export interface AceStepSchemaField {
   name: string
@@ -31,7 +37,7 @@ function schemaPath(): string {
   return path.join(dataDir(), 'ace-step-schema.json')
 }
 
-export function readAceStepSchema(): AceStepSchema | null {
+function readSchemaFile(): AceStepSchema | null {
   const p = schemaPath()
   if (!existsSync(p)) return null
   try {
@@ -39,4 +45,15 @@ export function readAceStepSchema(): AceStepSchema | null {
   } catch {
     return null
   }
+}
+
+export async function getAceStepSchema(): Promise<AceStepSchema | null> {
+  try {
+    await runCapture([mainVenvPython(), ...GENERATE_SCHEMA_CMD], dataDir())
+  } catch {
+    // ACE-Step not installed, or its request model changed shape — fall
+    // back to whatever was last successfully written (possibly null), so a
+    // transient failure here doesn't blank out a form that was working.
+  }
+  return readSchemaFile()
 }
