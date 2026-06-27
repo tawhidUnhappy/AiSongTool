@@ -1,48 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AceStepSchemaField, CreateFlow, LibrarySong } from '../../../shared/types'
+import type { CreateFlow, LibrarySong } from '../../../shared/types'
 import { STAGE_TEXT } from '../../../shared/types'
 import templateSkyPreview from '../assets/template_sky.jpg'
 import templateSyrexPreview from '../assets/template_syrex.jpg'
-import SchemaForm from '../components/SchemaForm'
-
-// `model`/`batch_size` are still driven by this app itself (the Setup
-// view's DiT model picker, one song per run) rather than exposed here, to
-// avoid a second control for the same setting. Every other real ACE-Step
-// field — task_type (text2music/repaint/cover/extract/lego/complete),
-// sample-mode auto-captioning, prompt/lyrics/audio_duration/vocal_language/
-// seed, repaint/cover params, the lot — renders straight from the live
-// schema below. Nothing here is hidden by a "this looks irrelevant" guess;
-// ACE-Step's own request model is the only judge of what's shown.
-const HANDLED_ELSEWHERE = new Set(['model', 'batch_size'])
-
-// ACE-Step's own default for `audio_duration` is `None` ("let the model
-// pick"), which isn't a usable starting point for a slider/number input in
-// this app — overridden to a sensible starting value (long enough for a
-// full verse/chorus/verse/chorus/bridge structure) only as the *initial*
-// value the user sees, not a hardcoded field definition.
-const INITIAL_VALUE_OVERRIDES: Record<string, unknown> = { audio_duration: 200 }
-
-// Every field still renders from the live schema with nothing dropped — this
-// only controls which ones are *visible by default*, so a plain text2music
-// run isn't confronted with ~15 repaint/cover/lego fields that do nothing
-// unless you're also in that specific task_type/mode. A field not matched
-// by any rule here is always shown (the safe default for anything new
-// ACE-Step adds that this list doesn't yet know about).
-function isFieldRelevant(field: AceStepSchemaField, values: Record<string, unknown>): boolean {
-  const taskType = values.task_type
-  if (field.name === 'sample_query' || field.name === 'use_format') return Boolean(values.sample_mode)
-  if (field.name === 'global_caption' || field.name === 'track_name' || field.name === 'track_classes') {
-    return taskType === 'lego'
-  }
-  if (field.name.startsWith('repaint') || field.name === 'chunk_mask_mode' || field.name === 'src_audio_path') {
-    return taskType === 'repaint'
-  }
-  if (field.name === 'audio_cover_strength' || field.name === 'cover_noise_strength' || field.name === 'reference_audio_path') {
-    return taskType === 'cover' || taskType === 'cover-nofsq'
-  }
-  if (field.name === 'extract_codes_only') return taskType === 'extract'
-  return true
-}
 
 function fmtDuration(totalSeconds: number): string {
   const s = Math.floor(totalSeconds)
@@ -64,31 +24,6 @@ export function Create(): React.JSX.Element {
 
   const [mode, setMode] = useState<'generate' | 'existing'>('generate')
   const [songName, setSongName] = useState('')
-
-  // The Create page's entire generation form — built directly from
-  // ACE-Step's own request model (see SchemaForm.tsx / ace-step-schema.ts),
-  // not hand-maintained, so it grows/shrinks/retypes itself whenever
-  // ACE-Step's installed version changes. Re-fetched fresh every time
-  // generate mode is actually opened (not just once on first mount) — the
-  // main process re-parses ACE-Step's request model from disk on every call
-  // (see ace-step-schema.ts's getAceStepSchema()), so this always reflects
-  // whatever's installed right now.
-  const [genFields, setGenFields] = useState<AceStepSchemaField[]>([])
-  const [genValues, setGenValues] = useState<Record<string, unknown>>({})
-
-  useEffect(() => {
-    if (mode !== 'generate') return
-    window.api.getAceStepSchema().then((schema) => {
-      if (!schema) return
-      const fields = schema.fields.filter((f) => !HANDLED_ELSEWHERE.has(f.name))
-      setGenFields(fields)
-      setGenValues((prev) => {
-        const next = { ...prev }
-        for (const f of fields) if (!(f.name in next)) next[f.name] = INITIAL_VALUE_OVERRIDES[f.name] ?? f.default
-        return next
-      })
-    })
-  }, [mode])
 
   const [existingSongPath, setExistingSongPath] = useState<string | null>(null)
   const [existingLyrics, setExistingLyrics] = useState('')
@@ -243,22 +178,10 @@ export function Create(): React.JSX.Element {
 
   const run = async (): Promise<void> => {
     if (running) return
-    // `sample_mode` is ACE-Step's own "write a short description, let the LM
-    // write the caption/lyrics" path — a song described that way leaves
-    // `prompt` blank and uses `sample_query` instead, so either counts as
-    // "described".
-    const genPrompt = String(genValues.prompt ?? '').trim()
-    const sampleQuery = String(genValues.sample_query ?? '').trim()
-    if (mode === 'generate' && !genPrompt && !sampleQuery) {
-      setStatusText('Describe the song you want first (Song style, or Sample query if using sample mode).')
+    if (!existingSongPath) {
+      setStatusText('Pick a song first — generate one above, or pick an existing file.')
       return
     }
-    if (mode === 'existing' && !existingSongPath) {
-      setStatusText('Pick a song first.')
-      return
-    }
-    const rawSeed = genValues.seed
-    const seed = typeof rawSeed === 'number' && Number.isInteger(rawSeed) ? rawSeed : null
     if (imagePath === null) return
 
     if (imagePromptMode !== 'song' && promptHistoryEnabled) {
@@ -274,22 +197,8 @@ export function Create(): React.JSX.Element {
     setStatusText('Starting...')
 
     await window.api.startCreateRun({
-      mode,
-      // Falls back to sample_query so the rest of the pipeline (background
-      // image prompt reuse, library captioning) still has *something*
-      // descriptive when sample mode is what actually described the song —
-      // ACE-Step itself still gets the real, distinct sample_query field
-      // via genOptions.advancedFields below.
-      prompt: genPrompt || sampleQuery,
+      prompt: '',
       songName: songName.trim(),
-      genLyrics: String(genValues.lyrics ?? '').trim(),
-      duration: Number(genValues.audio_duration ?? 200),
-      genOptions: {
-        vocalLanguage: String(genValues.vocal_language ?? 'en'),
-        instrumental: false,
-        seed,
-        advancedFields: genValues
-      },
       existingSong: existingSongPath,
       existingLyrics: existingLyrics.trim(),
       captionSource,
@@ -358,38 +267,27 @@ export function Create(): React.JSX.Element {
           </span>
         </div>
 
+        <hr style={hr} />
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 13 }}>
+            <strong>Song name</strong>
+            <span style={muted}> — just for this app's own filenames/library</span>
+          </span>
+          <input
+            placeholder="e.g. Neon Heartbreak"
+            value={songName}
+            onChange={(e) => setSongName(e.target.value)}
+            style={{ width: '100%', boxSizing: 'border-box' }}
+          />
+        </div>
+
+        <hr style={hr} />
+
         {mode === 'generate' ? (
-          <>
-            <hr style={hr} />
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 13 }}>
-                <strong>Song name</strong>
-                <span style={muted}> — just for this app's own filenames/library, not sent to ACE-Step</span>
-              </span>
-              <input
-                placeholder="e.g. Neon Heartbreak"
-                value={songName}
-                onChange={(e) => setSongName(e.target.value)}
-                style={{ width: '100%', boxSizing: 'border-box' }}
-              />
-            </div>
-
-            <hr style={hr} />
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ev-c-text-2)' }}>
-              ACE-Step generation options — read live from your installed ACE-Step's own request model, not
-              hand-maintained, so it never falls out of sync. Leave Lyrics empty for an instrumental track. Some
-              fields only appear once the relevant Task type / Sample mode is selected.
-            </div>
-            <SchemaForm
-              fields={genFields.filter((f) => isFieldRelevant(f, genValues))}
-              values={genValues}
-              onChange={(name, value) => setGenValues((prev) => ({ ...prev, [name]: value }))}
-            />
-          </>
+          <AceStepEmbeddedGenerator />
         ) : (
           <>
-            <hr style={hr} />
             {librarySongs.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>
@@ -599,11 +497,111 @@ function fmtLibraryDate(mtimeMs: number): string {
   })
 }
 
+/** ACE-Step's own Gradio UI, embedded directly in the Create page's
+ * generate-mode section — not a separate tab, and not a small scrolled
+ * box: a real, full-size view so it's actually usable, with all of
+ * ACE-Step's own modes/options (Simple/Custom/Remix/Repaint, file uploads,
+ * everything) instead of a hand-ported subset. Once a song is made here, it
+ * lands in `<ace-step repo>/gradio_outputs/`, which gets swept into this
+ * app's song library (see ipc-handlers.ts's `create:list-audio-library`) —
+ * switch to "Use an existing song" below to pick it up and continue. */
+function AceStepEmbeddedGenerator(): React.JSX.Element {
+  const [running, setRunning] = useState(false)
+  const [ready, setReady] = useState(false)
+  const [launching, setLaunching] = useState(false)
+
+  useEffect(() => {
+    window.api.isGuiRunning('ace-step').then(setRunning)
+  }, [])
+
+  useEffect(() => {
+    if (!running) {
+      setReady(false)
+      return
+    }
+    let cancelled = false
+    const poll = async (): Promise<void> => {
+      const up = await window.api.isAceStepUiUp()
+      if (cancelled) return
+      if (up) setReady(true)
+      else setTimeout(poll, 1500)
+    }
+    poll()
+    return () => {
+      cancelled = true
+    }
+  }, [running])
+
+  const launch = async (): Promise<void> => {
+    setLaunching(true)
+    try {
+      await window.api.launchAceStep()
+      setRunning(true)
+    } finally {
+      setLaunching(false)
+    }
+  }
+
+  const stop = async (): Promise<void> => {
+    await window.api.stopGui('ace-step')
+    setRunning(false)
+    setReady(false)
+  }
+
+  if (!running) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+        <button onClick={launch} disabled={launching}>
+          {launching ? 'Starting ACE-Step…' : 'Open ACE-Step'}
+        </button>
+        <span style={muted}>
+          Generate your song here with ACE-Step's full UI, then switch to "Use an existing song" above to pick
+          it up and continue with subtitles/video.
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={row}>
+        <button onClick={stop}>Stop ACE-Step</button>
+        <span style={muted}>
+          {ready
+            ? 'Once you\'ve generated a song, switch to "Use an existing song" above to continue.'
+            : 'Starting ACE-Step (first start can take a couple minutes while the model loads)…'}
+        </span>
+      </div>
+      {ready ? (
+        <webview
+          src="http://127.0.0.1:7860"
+          style={{ width: '100%', height: '80vh', minHeight: 600, border: '1px solid #333', borderRadius: 6 }}
+        />
+      ) : (
+        <div
+          style={{
+            width: '100%',
+            height: '80vh',
+            minHeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: '1px solid #333',
+            borderRadius: 6
+          }}
+        >
+          <span style={muted}>Waiting for ACE-Step to start…</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Card grid for picking a previously-generated song (library.ts's
  * `output/audio/`) as this run's input, instead of only a raw file-picker
  * dialog — each card shows whatever the song's own caption/lyrics metadata
- * has (from either the Create flow's own generation, or one made in the
- * separate "ACE-Step UI" tab) so songs are recognizable without having to
+ * has (from either this run's existing-song pick, or one made in the
+ * embedded ACE-Step UI above) so songs are recognizable without having to
  * remember filenames. */
 function SongLibraryGrid({
   songs,

@@ -1,14 +1,15 @@
 /**
- * Persistent "generated songs" library — every song the Create page's own
- * generation form produces lands in `<outputDir>/audio/` so it can be
- * browsed and reused as a fresh input later, instead of only existing
- * buried in a per-run job temp dir. `<outputDir>/images/` and
- * `<outputDir>/videos/` are the matching destinations for generated
- * background images and rendered videos, kept separate so the output folder
- * stays organized instead of one flat pile.
+ * Persistent "generated songs" library — every song this app produces (the
+ * embedded ACE-Step Gradio UI's own generations) lands in `<outputDir>/audio/`
+ * so it can be browsed and reused as a fresh input later, instead of only
+ * existing wherever ACE-Step's own Gradio app happens to save it.
+ * `<outputDir>/images/` and `<outputDir>/videos/` are the matching
+ * destinations for generated background images and rendered videos, kept
+ * separate so the output folder stays organized instead of one flat pile.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, copyFileSync, writeFileSync } from 'fs'
 import path from 'path'
+import * as aceStep from './tools/ace-step'
 
 export interface LibrarySong {
   name: string
@@ -67,6 +68,43 @@ function sanitizeFilename(name: string): string {
 }
 
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a', '.flac', '.ogg'])
+
+/** ACE-Step's own Gradio UI (acestep_v15_pipeline.py) saves every generation
+ * into `<ace-step repo>/gradio_outputs/batch_<timestamp>/<uuid>.mp3` (plus
+ * sidecar `.json`/`.npy`/`.npz` files we don't want) — confirmed by reading
+ * that script's own `output_dir` setup, not assumed. Copies any file not
+ * already present in the library (checked by destination filename, derived
+ * deterministically from the source — no separate "already imported"
+ * manifest needed) into `<outputDir>/audio/`, reading the matching `.json`
+ * sidecar for `caption`/`lyrics` if present. */
+export function importAceStepUiOutputs(outputDir: string): void {
+  const gradioOutputs = path.join(aceStep.destDir(), 'gradio_outputs')
+  if (!existsSync(gradioOutputs)) return
+
+  const destDir = audioLibraryDir(outputDir)
+  for (const batchName of readdirSync(gradioOutputs)) {
+    const batchDir = path.join(gradioOutputs, batchName)
+    if (!statSync(batchDir).isDirectory()) continue
+    for (const fname of readdirSync(batchDir)) {
+      if (path.extname(fname).toLowerCase() !== '.mp3') continue
+      const srcPath = path.join(batchDir, fname)
+      const destPath = path.join(destDir, `acestep-ui_${fname}`)
+      if (existsSync(destPath)) continue
+      copyFileSync(srcPath, destPath)
+
+      const sidecarJson = path.join(batchDir, `${path.basename(fname, '.mp3')}.json`)
+      if (existsSync(sidecarJson)) {
+        try {
+          const data = JSON.parse(readFileSync(sidecarJson, 'utf-8'))
+          writeMeta(destPath, data.caption || null, data.lyrics || null)
+        } catch {
+          // Sidecar JSON is just a nice-to-have for the card preview —
+          // missing/malformed metadata shouldn't block importing the song.
+        }
+      }
+    }
+  }
+}
 
 export function listAudioLibrary(outputDir: string): LibrarySong[] {
   const dir = audioLibraryDir(outputDir)

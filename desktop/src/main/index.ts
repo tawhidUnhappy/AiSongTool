@@ -17,7 +17,11 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      // Lets the Create page embed ACE-Step's own Gradio UI (a separate
+      // local server on 127.0.0.1:7860) in a <webview> instead of opening
+      // the system browser.
+      webviewTag: true
     }
   })
 

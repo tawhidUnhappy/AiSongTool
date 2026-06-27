@@ -48,51 +48,15 @@ export interface CreateFlow {
   elapsedSeconds: number | null
 }
 
-/** Song name/style/lyrics are always written by the user — ACE-Step's own
- * 5Hz LM already expands the style/lyrics into full generation metadata
- * (bpm/keyscale/timesignature/CoT caption) internally as part of generation
- * itself (Gemma 4 used to do an equivalent pre-step from a short
- * description, removed in favor of relying on that). */
-export interface CreateGenOptions {
-  vocalLanguage: string
-  instrumental: boolean
-  seed: number | null
-  // The Create page's schema-driven "Advanced" section — every other
-  // ACE-Step `/release_task` request field (bpm, key_scale, inference_steps,
-  // guidance_scale, repaint/cover params, LM tuning, etc.), keyed by
-  // ACE-Step's own field names exactly, straight from ace-step-schema.ts's
-  // parse of its real request model (see ace_step_schema.py) — not a fixed
-  // list maintained here. Merged into the /release_task body alongside
-  // prompt/lyrics/duration/vocalLanguage/seed.
-  advancedFields: Record<string, unknown>
-}
-
-/** Mirrors `desktop/src/main/ace-step-schema.ts` — the generation-form
- * schema parsed from ACE-Step's own request model, regenerated after every
- * install/update/reset. */
-export interface AceStepSchemaField {
-  name: string
-  type: 'string' | 'boolean' | 'integer' | 'number' | 'enum' | 'list'
-  enumValues: string[] | null
-  optional: boolean
-  multiline: boolean
-  default: unknown
-  description: string
-  min: number | null
-  max: number | null
-}
-
-export interface AceStepSchema {
-  fields: AceStepSchemaField[]
-}
-
 export interface CreateRunParams {
-  mode: 'generate' | 'existing'
+  // Song generation itself happens in ACE-Step's own embedded Gradio UI
+  // (see Create.tsx) — this pipeline only ever runs against an already-made
+  // song (freshly generated and picked up via the library, or an uploaded
+  // file). `prompt` is kept for the "reuse the song's own description" auto
+  // background-image option below; it's empty unless the user has typed
+  // something for that purpose.
   prompt: string
   songName: string
-  genLyrics: string
-  duration: number
-  genOptions: CreateGenOptions
   existingSong: string | null
   existingLyrics: string
   // What the subtitles/lyric-video are actually built from. 'auto': lyrics

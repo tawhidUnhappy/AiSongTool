@@ -149,21 +149,6 @@ def _doctor(args: argparse.Namespace) -> int:
     return 0
 
 
-def _generate_ace_step_schema(args: argparse.Namespace) -> int:
-    # On-demand fallback for the Electron app's `get-ace-step-schema` IPC
-    # handler, covering ACE-Step installs that predate this feature (so
-    # there's no schema file yet to read) — the real, automatic path is
-    # `ace_step.py`'s `_regenerate_schema()`, called after every
-    # install/update/reset.
-    from . import ace_step_schema
-    try:
-        ace_step_schema.write_schema(ace_step.dest_dir(), ace_step.schema_path())
-    except ace_step_schema.SchemaExtractionError as exc:
-        print(f"[generate-ace-step-schema] {exc}", file=sys.stderr)
-        return 1
-    return 0
-
-
 def _ace_step(args: argparse.Namespace) -> int:
     try:
         return ace_step.launch_blocking(args.entry, args.extra_args)
@@ -206,12 +191,6 @@ def main() -> int:
 
     doctor_ap = sub.add_parser("doctor", help="Print prerequisite/env status as JSON (for the Electron Setup view)")
     doctor_ap.set_defaults(func=_doctor)
-
-    schema_ap = sub.add_parser(
-        "generate-ace-step-schema",
-        help="Regenerate the Create page's generation-form schema from the installed ACE-Step's request model",
-    )
-    schema_ap.set_defaults(func=_generate_ace_step_schema)
 
     install_tool_ap = sub.add_parser(
         "install-tool", help="Clone + `uv sync` an optional external tool into its own isolated env"

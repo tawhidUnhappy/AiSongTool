@@ -1,7 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
-  AceStepSchema,
   AppSettings,
   CreateFlow,
   CreateRunParams,
@@ -19,7 +18,8 @@ const api = {
   runSetup: (): Promise<number> => ipcRenderer.invoke('run-setup'),
   installTool: (name: string): Promise<number> => ipcRenderer.invoke('install-tool', name),
   resetTool: (name: string): Promise<number> => ipcRenderer.invoke('reset-tool', name),
-  getAceStepSchema: (): Promise<AceStepSchema | null> => ipcRenderer.invoke('get-ace-step-schema'),
+  launchAceStep: (): Promise<void> => ipcRenderer.invoke('launch-ace-step'),
+  isAceStepUiUp: (): Promise<boolean> => ipcRenderer.invoke('is-ace-step-ui-up'),
   launchZimageGui: (): Promise<void> => ipcRenderer.invoke('launch-zimage-gui'),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('open-external', url),
   stopGui: (name: string): Promise<void> => ipcRenderer.invoke('stop-gui', name),

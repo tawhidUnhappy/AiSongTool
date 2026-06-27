@@ -14,10 +14,9 @@ export interface AppSettings {
   imagePromptHistory: string[]
 
   // Create view — every dropdown/checkbox/radio remembered across restarts,
-  // so reopening the app doesn't reset them to defaults. The generation
-  // form itself (prompt/lyrics/seed/duration/vocal language/etc.) isn't
-  // persisted here — it's built live from ACE-Step's own request model (see
-  // ace-step-schema.ts), not a fixed set of settings keys to remember.
+  // so reopening the app doesn't reset them to defaults. Song generation
+  // itself happens in ACE-Step's own embedded Gradio UI, which keeps its
+  // own state — nothing about it is persisted here.
   createMode: 'generate' | 'existing'
   createCaptionSource: 'auto' | 'transcript' | 'lyrics'
   createImageSource: 'auto' | 'pick'

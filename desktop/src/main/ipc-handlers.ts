@@ -19,8 +19,7 @@ import {
 import { mainVenvPython, dataDir } from './paths'
 import { ensureMainEnv } from './bootstrap'
 import { recordTerminalChunk, getTerminalHistory } from './terminal-history'
-import { listAudioLibrary } from './library'
-import { getAceStepSchema } from './ace-step-schema'
+import { importAceStepUiOutputs, listAudioLibrary } from './library'
 import * as aceStep from './tools/ace-step'
 import * as zimage from './tools/zimage'
 import * as createPipeline from './create-pipeline'
@@ -90,12 +89,29 @@ export function registerIpcHandlers(): void {
     return runBlocking(cmd, dataDir(), onData)
   })
 
-  // The Create page's generation form is built directly from
-  // ace-step-schema.ts's parse of ACE-Step's real request model — no
-  // separate Gradio UI to launch or embed any more (its "Generate" button
-  // has no stable API contract to integrate against; the REST API server
-  // this app already talks to does — see ace_step_schema.py's docstring).
-  ipcMain.handle('get-ace-step-schema', () => getAceStepSchema())
+  ipcMain.handle('launch-ace-step', (event) => {
+    // `uv run acestep` — the actual Gradio demo UI (port 7860), embedded
+    // directly into the Create page's generate mode via a <webview> (see
+    // is-ace-step-ui-up below, which that view polls before pointing the
+    // webview at the URL).
+    const cmd = aceStep.buildGuiCmd()
+    spawnDetached(cmd, aceStep.destDir(), (chunk) => send(event, chunk), undefined, 'ace-step')
+  })
+
+  // Polled by the renderer's embedded webview to know when the Gradio UI is
+  // actually ready to load — model/UI startup can take a while, so a fixed
+  // post-launch delay isn't reliable.
+  ipcMain.handle('is-ace-step-ui-up', async () => {
+    try {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 2000)
+      const resp = await fetch('http://127.0.0.1:7860', { signal: controller.signal })
+      clearTimeout(timer)
+      return resp.status < 500
+    } catch {
+      return false
+    }
+  })
 
   ipcMain.handle('stop-gui', (_event, name: string) => stopNamedGui(name))
 
@@ -265,10 +281,14 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('create:get-output-dir', () => createPipeline.getOutputDir())
 
-  // Generated-songs library (output/audio/) — every song the Create page's
-  // own generation form produces.
+  // Generated-songs library (output/audio/) — also sweeps in any new song
+  // from the embedded ACE-Step Gradio UI (its own `gradio_outputs/` folder,
+  // inside the cloned ace-step repo) before listing, so the Create view's
+  // "existing song" card picker picks up songs made there with no extra
+  // import step.
   ipcMain.handle('create:list-audio-library', () => {
     const outputDir = createPipeline.getOutputDir()
+    importAceStepUiOutputs(outputDir)
     return listAudioLibrary(outputDir)
   })
 

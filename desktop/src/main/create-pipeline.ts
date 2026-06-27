@@ -9,21 +9,17 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, writeFileSync } fr
 import path from 'path'
 import { app } from 'electron'
 import { shortId } from './short-id'
-import * as aceStep from './tools/ace-step'
-import * as aceStepApi from './tools/ace-step-api'
 import * as zimage from './tools/zimage'
 import * as syrex from './tools/syrex'
-import { audioLibraryDir, imageLibraryDir, videoLibraryDir, saveGeneratedSong } from './library'
+import { audioLibraryDir, imageLibraryDir, videoLibraryDir } from './library'
 import { buildNightcoreAudioCmd, nightcoreVideoInPlace, DEFAULT_SPEED } from './tools/nightcore'
 import { renderVideoWithFallback } from './tools/video'
 import { jobsDir, mainVenvPython, dataDir, appResourcesDir } from './paths'
-import { killProcessTree, runBlocking, spawnDetached, type OnData } from './jobs'
-import { waitForGpuMemoryFree } from './gpu'
+import { runBlocking, type OnData } from './jobs'
 import { getSettings } from './settings'
-import type { CreateFlow, CreateGenOptions, CreateRunParams } from '../shared/types'
+import type { CreateFlow, CreateRunParams } from '../shared/types'
 
 export type Flow = CreateFlow
-export type GenOptions = CreateGenOptions
 export type RunAllParams = CreateRunParams
 
 // Writes straight to disk, independent of the Terminal pane / xterm buffer
@@ -82,102 +78,6 @@ export function getOutputDir(): string {
   return outputDir
 }
 
-/** Runs ACE-Step end to end: install check -> start its API server ->
- * generate -> explicitly shut the server down again (frees the GPU before
- * Demucs/WhisperX run next). `prompt`/`lyrics`/`vocalLanguage` are passed in
- * already resolved (literal manual text) by the caller; `advancedFields` is
- * the Create page's schema-driven "Advanced" section, merged into the
- * request body as-is. */
-async function generateSong(
-  prompt: string,
-  lyrics: string,
-  duration: number,
-  vocalLanguage: string,
-  instrumental: boolean,
-  seed: number | null,
-  advancedFields: Record<string, unknown>,
-  onData: OnData
-): Promise<{ songPath: string | null; lyricsText: string }> {
-  debugLog('generateSong: entered')
-  flow.stage = 'gen_checking'
-  if (!aceStep.isSynced()) {
-    flow.errorMessage =
-      'ACE-Step-1.5 isn\'t installed yet. Go to the Setup view and click "Install / update ACE-Step" first.'
-    onData(flow.errorMessage + '\r\n')
-    flow.stage = 'error'
-    return { songPath: null, lyricsText: '' }
-  }
-
-  let serverPid: number | null = null
-  try {
-    if (!(await aceStepApi.isServerUp())) {
-      flow.stage = 'gen_starting_server'
-      flow.stageStartedAt = Date.now()
-      const cmd = aceStep.buildServerCmd()
-      serverPid = spawnDetached(cmd, aceStep.destDir(), onData)
-      if (!(await aceStepApi.waitForServer(undefined, undefined, 300_000, onData))) {
-        flow.errorMessage = 'ACE-Step API server did not start in time.'
-        onData(flow.errorMessage + '\r\n')
-        flow.stage = 'error'
-        return { songPath: null, lyricsText: '' }
-      }
-    }
-
-    flow.stage = 'gen_generating'
-    flow.stageStartedAt = Date.now()
-    const genOutDir = path.join(jobsDir(), '_songgen', shortId())
-    const settings = getSettings()
-    const requestBody: Record<string, unknown> = {
-      ...advancedFields,
-      prompt,
-      lyrics: instrumental ? '' : lyrics,
-      audio_duration: duration,
-      vocal_language: vocalLanguage === 'unknown' ? 'en' : vocalLanguage,
-      seed: seed === null ? -1 : seed,
-      model: settings.aceStepDitModel
-    }
-    const audioPath = await aceStepApi.generateSong({
-      requestBody,
-      outDir: genOutDir,
-      log: onData,
-      onProgress: (text) => (flow.genProgressText = text)
-    })
-    const returnedLyrics = instrumental ? '' : lyrics
-    return { songPath: audioPath, lyricsText: returnedLyrics }
-  } catch (exc) {
-    flow.errorMessage = String((exc as Error).message ?? exc)
-    flow.stage = 'error'
-    return { songPath: null, lyricsText: '' }
-  } finally {
-    debugLog(`generateSong finally: serverPid=${serverPid}`)
-    if (serverPid !== null) {
-      // Closing the server clobbers flow.stage while it runs, so remember
-      // whether an error was already recorded above and restore it
-      // afterwards — otherwise a failed generation gets permanently stuck
-      // showing "shutting down the server" instead of the actual error.
-      const hadError = flow.errorMessage !== null
-      flow.stage = 'gen_closing_server'
-      onData('Closing ACE-Step API server to free the GPU...\r\n')
-      debugLog('Closing ACE-Step API server: onData call made, starting kill...')
-      // A plain kill only hits the immediate child — ACE-Step's server
-      // forks its own worker process(es) for model serving, which would
-      // otherwise keep running and holding the GPU. Await the kill itself
-      // finishing (not just being requested), then actually confirm the GPU
-      // driver has reclaimed the dead process's VRAM (rather than guessing
-      // a fixed delay was long enough) before the next step (Z-Image-Turbo,
-      // if image_source is "auto") tries to load its own model onto the
-      // same GPU — ACE-Step's server alone holds ~8GB on a 12GB card, so a
-      // race here reliably OOMs the very next load.
-      await killProcessTree(serverPid)
-      debugLog('killProcessTree resolved')
-      onData('Waiting for the GPU to free up...\r\n')
-      await waitForGpuMemoryFree()
-      debugLog('waitForGpuMemoryFree resolved — server shutdown complete')
-      if (hadError) flow.stage = 'error'
-    }
-  }
-}
-
 /** One-shot Z-Image-Turbo generation — no server lifecycle like ACE-Step
  * needs. Failure here just logs a warning and falls back to the default
  * background — a bad image generation shouldn't sink the whole run. */
@@ -232,9 +132,8 @@ function sanitizeFilename(name: string): string {
 
 export async function runAll(params: RunAllParams, onData: OnData): Promise<void> {
   try {
-    let { prompt, songName, genLyrics: lyrics, imagePath, duration } = params
+    let { prompt, songName, imagePath } = params
     const {
-      mode,
       existingSong,
       existingLyrics,
       captionSource,
@@ -244,64 +143,35 @@ export async function runAll(params: RunAllParams, onData: OnData): Promise<void
       imagePromptMode,
       imagePromptText
     } = params
-    const genOptions = params.genOptions
-    let songPath: string | null
-    let lyricsText: string
-
-    if (mode === 'generate') {
-      const result = await generateSong(
-        prompt,
-        lyrics,
-        duration,
-        genOptions.vocalLanguage,
-        genOptions.instrumental,
-        genOptions.seed,
-        genOptions.advancedFields,
-        onData
-      )
-      songPath = result.songPath
-      lyricsText = result.lyricsText
-      if (songPath === null) return // flow.errorMessage/stage already set
-
-      // Saved into the library right away — before the rest of the pipeline
-      // (which can still fail) runs — so the raw generated song is always
-      // there to browse/reuse, not just buried in a per-run job temp dir.
-      try {
-        saveGeneratedSong(getOutputDir(), songPath, songName, prompt, lyricsText, shortId())
-      } catch (exc) {
-        onData(`Could not save the generated song to the library: ${String(exc)}\r\n`)
-      }
-
-      if (imageSource === 'auto') {
-        if (template === 'sky') {
-          // The "Minimalistic Sky" template hardcodes the image-generation
-          // prompt outright — every other source (song style, manual text)
-          // is ignored so this template's look stays exactly the same
-          // regardless of the song.
-          const generatedImage = await generateImage(SKY_TEMPLATE_PROMPT, onData, true)
-          if (generatedImage !== null) imagePath = generatedImage
-        } else {
-          const imagePrompt = resolveImagePrompt(prompt, imagePromptMode, imagePromptText)
-          const generatedImage = await generateImage(imagePrompt, onData)
-          if (generatedImage !== null) imagePath = generatedImage
-        }
-        if (imagePath !== params.imagePath) {
-          try {
-            copyFileSync(imagePath, path.join(imageLibraryDir(getOutputDir()), `${sanitizeFilename(songName) || 'image'}_${shortId()}${path.extname(imagePath)}`))
-          } catch (exc) {
-            onData(`Could not save the generated image to the library: ${String(exc)}\r\n`)
-          }
-        }
-      }
-    } else {
-      songPath = existingSong
-      lyricsText = existingLyrics
-    }
+    const songPath: string | null = existingSong
+    const lyricsText: string = existingLyrics
 
     if (songPath === null) {
       flow.errorMessage = 'No song to work with.'
       flow.stage = 'error'
       return
+    }
+
+    if (imageSource === 'auto') {
+      if (template === 'sky') {
+        // The "Minimalistic Sky" template hardcodes the image-generation
+        // prompt outright — every other source (song style, manual text)
+        // is ignored so this template's look stays exactly the same
+        // regardless of the song.
+        const generatedImage = await generateImage(SKY_TEMPLATE_PROMPT, onData, true)
+        if (generatedImage !== null) imagePath = generatedImage
+      } else {
+        const imagePrompt = resolveImagePrompt(prompt, imagePromptMode, imagePromptText)
+        const generatedImage = await generateImage(imagePrompt, onData)
+        if (generatedImage !== null) imagePath = generatedImage
+      }
+      if (imagePath !== params.imagePath) {
+        try {
+          copyFileSync(imagePath, path.join(imageLibraryDir(getOutputDir()), `${sanitizeFilename(songName) || 'image'}_${shortId()}${path.extname(imagePath)}`))
+        } catch (exc) {
+          onData(`Could not save the generated image to the library: ${String(exc)}\r\n`)
+        }
+      }
     }
 
     const jobDir = path.join(jobsDir(), '_create', shortId())
