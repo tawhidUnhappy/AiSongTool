@@ -59,17 +59,16 @@ export function isSynced(): boolean {
   return isCloned() && existsSync(venvPython(destDir()))
 }
 
-/** `uv run acestep` — ACE-Step-1.5's Gradio demo UI `[project.scripts]`
- * entry point (`acestep.acestep_v15_pipeline:main`), embedded directly in
- * the Create page's generate mode via a `<webview>`, defaulting to port
- * 7860. (The headless REST server, `acestep-api`/port 8001, is used by the
- * separate Python/Docker pipeline — see `aisongtool/ace_step_api.py` — not
- * by this Electron app.) */
-export function buildGuiCmd(): string[] {
+/** `uv run acestep-api` — ACE-Step-1.5's headless REST server
+ * `[project.scripts]` entry point, port 8001 by default. Launched detached
+ * by create-pipeline.ts's `generateSong()` only while a sample-mode
+ * generation is actually running, then shut down again right after to free
+ * the GPU for Demucs/WhisperX — see `tools/ace-step-api.ts` for the client. */
+export function buildServerCmd(): string[] {
   if (!isSynced()) {
     throw new AceStepError("ACE-Step-1.5 isn't installed yet. Install it from the Setup view first.")
   }
-  return [findUv(), 'run', 'acestep']
+  return [findUv(), 'run', 'acestep-api']
 }
 
 /** `uv run acestep-download` — ACE-Step-1.5's own pre-download entry point

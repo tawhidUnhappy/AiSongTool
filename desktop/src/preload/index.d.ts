@@ -16,8 +16,6 @@ interface Api {
   runSetup: () => Promise<number>
   installTool: (name: string) => Promise<number>
   resetTool: (name: string) => Promise<number>
-  launchAceStep: () => Promise<void>
-  isAceStepUiUp: () => Promise<boolean>
   launchZimageGui: () => Promise<void>
   openExternal: (url: string) => Promise<void>
   stopGui: (name: string) => Promise<void>

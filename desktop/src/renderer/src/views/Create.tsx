@@ -50,6 +50,12 @@ export function Create(): React.JSX.Element {
   const [imagePath, setImagePath] = useState<string | null>(null)
   const [imagePromptText, setImagePromptText] = useState('')
 
+  // 'generate' mode's only input — ACE-Step's own sample mode auto-generates
+  // the caption/lyrics/bpm/key/everything else from this one description via
+  // its 5Hz LM (see create-pipeline.ts's generateSong()). Doubles as the
+  // background-image prompt's fallback below.
+  const [songDescription, setSongDescription] = useState('')
+
   const [promptHistoryEnabled, setPromptHistoryEnabled] = useState(true)
   const [imagePromptHistory, setImagePromptHistory] = useState<string[]>([])
 
@@ -173,8 +179,12 @@ export function Create(): React.JSX.Element {
 
   const run = async (): Promise<void> => {
     if (running) return
-    if (!existingSongPath) {
-      setStatusText('Pick a song first — generate one above, or pick an existing file.')
+    if (mode === 'generate' && !songDescription.trim()) {
+      setStatusText('Describe the song you want first.')
+      return
+    }
+    if (mode === 'existing' && !existingSongPath) {
+      setStatusText('Pick a song first.')
       return
     }
     if (imagePath === null) return
@@ -192,7 +202,8 @@ export function Create(): React.JSX.Element {
     setStatusText('Starting...')
 
     await window.api.startCreateRun({
-      prompt: '',
+      mode,
+      prompt: mode === 'generate' ? songDescription.trim() : '',
       songName: songName.trim(),
       existingSong: existingSongPath,
       existingLyrics: existingLyrics.trim(),
@@ -219,34 +230,6 @@ export function Create(): React.JSX.Element {
     const stem = path_basename(flow.songPath).replace(/\.[^.]+$/, '')
     const src = `${flow.jobDir}\\out\\final.${ext}`
     await window.api.saveArtifact(src, `${stem}.${ext}`)
-  }
-
-  // "Generate a new song" takes over the whole tab (full-bleed embedded
-  // webview, no other cards, no outer scrollbar) instead of being one card
-  // in a long scrolling list — the embedded Gradio UI needs real screen
-  // space to be usable, not a small boxed-in preview. Switch to "Use an
-  // existing song" to get the normal scrolling form back (Template/
-  // Background image/Output/Run) and pick up whatever was just generated.
-  if (mode === 'generate') {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <Radio
-            name="mode"
-            value={mode}
-            onChange={(v) => setMode(v as typeof mode)}
-            options={[
-              ['generate', 'Generate a new song'],
-              ['existing', 'Use an existing song']
-            ]}
-          />
-          <span style={muted}>Generate here, then switch to "Use an existing song" to continue with subtitles/video.</span>
-        </div>
-        <div style={{ flex: 1, minHeight: 0 }}>
-          <AceStepEmbeddedGenerator />
-        </div>
-      </div>
-    )
   }
 
   return (
@@ -306,25 +289,44 @@ export function Create(): React.JSX.Element {
 
         <hr style={hr} />
 
-        {librarySongs.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>
-              Previously generated songs — pick one to use as this run's input
+        {mode === 'generate' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Song description</span>
+            <textarea
+              placeholder="e.g. an upbeat synth-pop love song with a driving beat and dreamy female vocals"
+              value={songDescription}
+              onChange={(e) => setSongDescription(e.target.value)}
+              rows={3}
+              style={textareaStyle}
+            />
+            <span style={muted}>
+              ACE-Step's sample mode generates the caption, lyrics, and everything else from this description on
+              its own — no other input needed.
             </span>
-            <SongLibraryGrid songs={librarySongs} selected={existingSongPath} onPick={useLibrarySong} />
           </div>
+        ) : (
+          <>
+            {librarySongs.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>
+                  Previously generated songs — pick one to use as this run's input
+                </span>
+                <SongLibraryGrid songs={librarySongs} selected={existingSongPath} onPick={useLibrarySong} />
+              </div>
+            )}
+            <div style={row}>
+              <button onClick={pickSong}>Pick song file from disk…</button>
+              <span style={muted}>{existingSongPath ? `Using: ${path_basename(existingSongPath)}` : 'No song selected.'}</span>
+            </div>
+            <textarea
+              placeholder="Lyrics for this song (optional, improves alignment)"
+              value={existingLyrics}
+              onChange={(e) => setExistingLyrics(e.target.value)}
+              rows={3}
+              style={textareaStyle}
+            />
+          </>
         )}
-        <div style={row}>
-          <button onClick={pickSong}>Pick song file from disk…</button>
-          <span style={muted}>{existingSongPath ? `Using: ${path_basename(existingSongPath)}` : 'No song selected.'}</span>
-        </div>
-        <textarea
-          placeholder="Lyrics for this song (optional, improves alignment)"
-          value={existingLyrics}
-          onChange={(e) => setExistingLyrics(e.target.value)}
-          rows={3}
-          style={textareaStyle}
-        />
       </Card>
 
       <Card title="2. Template">
@@ -500,134 +502,11 @@ function fmtLibraryDate(mtimeMs: number): string {
   })
 }
 
-/** ACE-Step's own Gradio UI, embedded directly in the Create page's
- * generate-mode section — not a separate tab, and not a small scrolled
- * box: a real, full-size view so it's actually usable, with all of
- * ACE-Step's own modes/options (Simple/Custom/Remix/Repaint, file uploads,
- * everything) instead of a hand-ported subset. Once a song is made here, it
- * lands in `<ace-step repo>/gradio_outputs/`, which gets swept into this
- * app's song library (see ipc-handlers.ts's `create:list-audio-library`) —
- * switch to "Use an existing song" below to pick it up and continue. */
-type WebviewElement = HTMLElement & { insertCSS: (css: string) => Promise<string> }
-
-// ACE-Step's Gradio page is its own separate guest document inside the
-// <webview> — this app's own `color-scheme: dark` (base.css) only darkens
-// *our* page's native scrollbars, not the embedded one's, which is why it
-// rendered with a light/white scrollbar by default. Injected once the
-// guest page is actually loaded (`dom-ready`), not on mount — the webview
-// tag exists before its `src` has loaded anything to inject into.
-const DARK_SCROLLBAR_CSS = `
-  ::-webkit-scrollbar { width: 12px; height: 12px; }
-  ::-webkit-scrollbar-track { background: #1b1b1f; }
-  ::-webkit-scrollbar-thumb { background: #515c67; border-radius: 6px; }
-  ::-webkit-scrollbar-thumb:hover { background: #6b7785; }
-`
-
-function AceStepEmbeddedGenerator(): React.JSX.Element {
-  const [running, setRunning] = useState(false)
-  const [ready, setReady] = useState(false)
-  const [launching, setLaunching] = useState(false)
-  const webviewRef = useRef<WebviewElement | null>(null)
-
-  useEffect(() => {
-    if (!ready) return
-    const el = webviewRef.current
-    if (!el) return
-    const onDomReady = (): void => {
-      el.insertCSS(DARK_SCROLLBAR_CSS)
-    }
-    el.addEventListener('dom-ready', onDomReady)
-    return () => el.removeEventListener('dom-ready', onDomReady)
-  }, [ready])
-
-  useEffect(() => {
-    window.api.isGuiRunning('ace-step').then(setRunning)
-  }, [])
-
-  useEffect(() => {
-    if (!running) {
-      setReady(false)
-      return
-    }
-    let cancelled = false
-    const poll = async (): Promise<void> => {
-      const up = await window.api.isAceStepUiUp()
-      if (cancelled) return
-      if (up) setReady(true)
-      else setTimeout(poll, 1500)
-    }
-    poll()
-    return () => {
-      cancelled = true
-    }
-  }, [running])
-
-  const launch = async (): Promise<void> => {
-    setLaunching(true)
-    try {
-      await window.api.launchAceStep()
-      setRunning(true)
-    } finally {
-      setLaunching(false)
-    }
-  }
-
-  const stop = async (): Promise<void> => {
-    await window.api.stopGui('ace-step')
-    setRunning(false)
-    setReady(false)
-  }
-
-  if (!running) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start', height: '100%' }}>
-        <button onClick={launch} disabled={launching}>
-          {launching ? 'Starting ACE-Step…' : 'Open ACE-Step'}
-        </button>
-        <span style={muted}>
-          Generate your song here with ACE-Step's full UI, then switch to "Use an existing song" above to pick
-          it up and continue with subtitles/video.
-        </span>
-      </div>
-    )
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 }}>
-      <div style={row}>
-        <button onClick={stop}>Stop ACE-Step</button>
-        <span style={muted}>
-          {ready
-            ? 'Once you\'ve generated a song, switch to "Use an existing song" above to continue.'
-            : 'Starting ACE-Step (first start can take a couple minutes while the model loads)…'}
-        </span>
-      </div>
-      {ready ? (
-        <webview ref={webviewRef} src="http://127.0.0.1:7860" style={{ width: '100%', flex: 1, minHeight: 0 }} />
-      ) : (
-        <div
-          style={{
-            width: '100%',
-            flex: 1,
-            minHeight: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
-        >
-          <span style={muted}>Waiting for ACE-Step to start…</span>
-        </div>
-      )}
-    </div>
-  )
-}
-
 /** Card grid for picking a previously-generated song (library.ts's
  * `output/audio/`) as this run's input, instead of only a raw file-picker
  * dialog — each card shows whatever the song's own caption/lyrics metadata
- * has (from either this run's existing-song pick, or one made in the
- * embedded ACE-Step UI above) so songs are recognizable without having to
- * remember filenames. */
+ * has (from either a past sample-mode generation or an existing-song pick)
+ * so songs are recognizable without having to remember filenames. */
 function SongLibraryGrid({
   songs,
   selected,

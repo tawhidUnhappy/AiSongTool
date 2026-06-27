@@ -9,13 +9,16 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, writeFileSync } fr
 import path from 'path'
 import { app } from 'electron'
 import { shortId } from './short-id'
+import * as aceStep from './tools/ace-step'
+import * as aceStepApi from './tools/ace-step-api'
 import * as zimage from './tools/zimage'
 import * as syrex from './tools/syrex'
-import { audioLibraryDir, imageLibraryDir, videoLibraryDir } from './library'
+import { audioLibraryDir, imageLibraryDir, videoLibraryDir, saveGeneratedSong } from './library'
 import { buildNightcoreAudioCmd, nightcoreVideoInPlace, DEFAULT_SPEED } from './tools/nightcore'
 import { renderVideoWithFallback } from './tools/video'
 import { jobsDir, mainVenvPython, dataDir, appResourcesDir } from './paths'
-import { runBlocking, type OnData } from './jobs'
+import { killProcessTree, runBlocking, spawnDetached, type OnData } from './jobs'
+import { waitForGpuMemoryFree } from './gpu'
 import { getSettings } from './settings'
 import type { CreateFlow, CreateRunParams } from '../shared/types'
 
@@ -78,6 +81,83 @@ export function getOutputDir(): string {
   return outputDir
 }
 
+/** Runs ACE-Step's sample mode end to end: install check -> start its API
+ * server -> generate from a plain description (no other fields — ACE-Step's
+ * own 5Hz LM auto-generates the caption/lyrics/metas) -> explicitly shut the
+ * server down again (frees the GPU before Demucs/WhisperX run next). */
+async function generateSong(
+  description: string,
+  onData: OnData
+): Promise<{ songPath: string | null; lyricsText: string }> {
+  debugLog('generateSong: entered')
+  flow.stage = 'gen_checking'
+  flow.stageStartedAt = Date.now()
+  if (!aceStep.isSynced()) {
+    flow.errorMessage =
+      'ACE-Step-1.5 isn\'t installed yet. Go to the Setup view and click "Install / update ACE-Step" first.'
+    onData(flow.errorMessage + '\r\n')
+    flow.stage = 'error'
+    return { songPath: null, lyricsText: '' }
+  }
+
+  let serverPid: number | null = null
+  try {
+    if (!(await aceStepApi.isServerUp())) {
+      flow.stage = 'gen_starting_server'
+      flow.stageStartedAt = Date.now()
+      const cmd = aceStep.buildServerCmd()
+      serverPid = spawnDetached(cmd, aceStep.destDir(), onData)
+      if (!(await aceStepApi.waitForServer(undefined, undefined, 300_000, onData))) {
+        flow.errorMessage = 'ACE-Step API server did not start in time.'
+        onData(flow.errorMessage + '\r\n')
+        flow.stage = 'error'
+        return { songPath: null, lyricsText: '' }
+      }
+    }
+
+    flow.stage = 'gen_generating'
+    flow.stageStartedAt = Date.now()
+    const genOutDir = path.join(jobsDir(), '_songgen', shortId())
+    const settings = getSettings()
+    const sample = await aceStepApi.generateSampleSong({
+      description,
+      model: settings.aceStepDitModel,
+      outDir: genOutDir,
+      log: onData,
+      onProgress: (text) => (flow.genProgressText = text)
+    })
+    return { songPath: sample.audioPath, lyricsText: sample.lyrics }
+  } catch (exc) {
+    flow.errorMessage = String((exc as Error).message ?? exc)
+    flow.stage = 'error'
+    return { songPath: null, lyricsText: '' }
+  } finally {
+    debugLog(`generateSong finally: serverPid=${serverPid}`)
+    if (serverPid !== null) {
+      // Closing the server clobbers flow.stage while it runs, so remember
+      // whether an error was already recorded above and restore it
+      // afterwards — otherwise a failed generation gets permanently stuck
+      // showing "shutting down the server" instead of the actual error.
+      const hadError = flow.errorMessage !== null
+      flow.stage = 'gen_closing_server'
+      onData('Closing ACE-Step API server to free the GPU...\r\n')
+      // A plain kill only hits the immediate child — ACE-Step's server
+      // forks its own worker process(es) for model serving, which would
+      // otherwise keep running and holding the GPU. Await the kill itself
+      // finishing (not just being requested), then actually confirm the GPU
+      // driver has reclaimed the dead process's VRAM (rather than guessing
+      // a fixed delay was long enough) before the next step (Z-Image-Turbo,
+      // if image_source is "auto") tries to load its own model onto the
+      // same GPU — ACE-Step's server alone holds ~8GB on a 12GB card, so a
+      // race here reliably OOMs the very next load.
+      await killProcessTree(serverPid)
+      onData('Waiting for the GPU to free up...\r\n')
+      await waitForGpuMemoryFree()
+      if (hadError) flow.stage = 'error'
+    }
+  }
+}
+
 /** One-shot Z-Image-Turbo generation — no server lifecycle like ACE-Step
  * needs. Failure here just logs a warning and falls back to the default
  * background — a bad image generation shouldn't sink the whole run. */
@@ -126,6 +206,7 @@ export async function runAll(params: RunAllParams, onData: OnData): Promise<void
   try {
     let { prompt, songName, imagePath } = params
     const {
+      mode,
       existingSong,
       existingLyrics,
       captionSource,
@@ -134,11 +215,27 @@ export async function runAll(params: RunAllParams, onData: OnData): Promise<void
       imageSource,
       imagePromptText
     } = params
-    const songPath: string | null = existingSong
-    const lyricsText: string = existingLyrics
+    let songPath: string | null
+    let lyricsText: string
+
+    if (mode === 'generate') {
+      const result = await generateSong(prompt, onData)
+      songPath = result.songPath
+      lyricsText = result.lyricsText
+      if (songPath !== null) {
+        try {
+          saveGeneratedSong(getOutputDir(), songPath, songName, prompt, lyricsText, shortId())
+        } catch (exc) {
+          onData(`Could not save the generated song to the library: ${String(exc)}\r\n`)
+        }
+      }
+    } else {
+      songPath = existingSong
+      lyricsText = existingLyrics
+    }
 
     if (songPath === null) {
-      flow.errorMessage = 'No song to work with.'
+      flow.errorMessage = flow.errorMessage ?? 'No song to work with.'
       flow.stage = 'error'
       return
     }

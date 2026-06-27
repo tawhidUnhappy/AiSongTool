@@ -49,12 +49,12 @@ export interface CreateFlow {
 }
 
 export interface CreateRunParams {
-  // Song generation itself happens in ACE-Step's own embedded Gradio UI
-  // (see Create.tsx) — this pipeline only ever runs against an already-made
-  // song (freshly generated and picked up via the library, or an uploaded
-  // file). `prompt` is kept for the "reuse the song's own description" auto
-  // background-image option below; it's empty unless the user has typed
-  // something for that purpose.
+  mode: 'generate' | 'existing'
+  // 'generate' mode: a short description, handed to ACE-Step's own sample
+  // mode (sample_query) to auto-generate caption/lyrics/everything else via
+  // its 5Hz LM — see create-pipeline.ts's generateSong(). Also reused as
+  // the "song's own description" fallback for the auto background-image
+  // prompt below. 'existing' mode: empty.
   prompt: string
   songName: string
   existingSong: string | null
